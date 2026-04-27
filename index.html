@@ -185,12 +185,6 @@
     <small>On Letterboxd go to <strong>Settings → Data → Export Your Data</strong> — you'll get a <code>.zip</code> file. Drop one ZIP in each slot above.</small>
   </div>
 
-  <div class="field-group">
-    <label>TMDB API Key <span style="color:var(--green)">(required)</span></label>
-    <input type="text" id="tmdb-key" placeholder="e.g. v3 API key, 32 hex chars" autocomplete="off" />
-    <small>Free key at <strong>themoviedb.org/settings/api</strong>. Used in your browser only — never sent anywhere else. Cached in localStorage so you don't have to re-enter it.</small>
-  </div>
-
   <button class="btn" id="generate-btn" disabled>Find Our Picks</button>
   <p class="err" id="upload-err"></p>
 </div>
@@ -263,16 +257,15 @@ document.querySelectorAll('.drop-zone').forEach(z => {
   });
 });
 
-const KEY_KEY = 'lp_tmdb_key_v1';
-const tmdbInput = document.getElementById('tmdb-key');
-tmdbInput.value = localStorage.getItem(KEY_KEY) || '';
-tmdbInput.addEventListener('input', () => { localStorage.setItem(KEY_KEY, tmdbInput.value.trim()); checkReady(); });
+// TMDB v4 Read Access Token (read-only, public site). Switch via /movie/...
+// uses Bearer auth instead of v3's api_key query param.
+const TMDB_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0OWVhMTczNmQ5NzRkNDkzNTA2MzhhZjk2MjQxMzhiZCIsIm5iZiI6MTc3NzMyMjU2NS41NzQwMDAxLCJzdWIiOiI2OWVmY2E0NWVmYjA0YjNlNzAyOTk5NjkiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.CBvA4k58mRoH2IE347CM-1IuvOm--wTp8L2_IPce3Vc';
 
 document.getElementById('name-a').addEventListener('input', checkReady);
 document.getElementById('name-b').addEventListener('input', checkReady);
 
 function checkReady() {
-  const ok = files.a && files.b && tmdbInput.value.trim().length >= 10;
+  const ok = files.a && files.b;
   document.getElementById('generate-btn').disabled = !ok;
 }
 
@@ -360,28 +353,30 @@ const TMDB_CACHE_KEY = 'lp_tmdb_cache_v1';
 function loadTmdbCache() { try { return JSON.parse(localStorage.getItem(TMDB_CACHE_KEY) || '{}'); } catch { return {}; } }
 function saveTmdbCache(c) { try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(c)); } catch {} }
 
-async function tmdbGet(path, params, apiKey) {
-  const p = new URLSearchParams({ api_key: apiKey, ...params });
-  const res = await fetch(TMDB + path + '?' + p);
+async function tmdbGet(path, params) {
+  const qs = Object.keys(params).length ? '?' + new URLSearchParams(params) : '';
+  const res = await fetch(TMDB + path + qs, {
+    headers: { 'Authorization': 'Bearer ' + TMDB_TOKEN, 'Accept': 'application/json' },
+  });
   if (!res.ok) throw new Error('TMDB ' + res.status + ' on ' + path);
   return res.json();
 }
 
-async function tmdbSearch(title, year, apiKey, cache) {
+async function tmdbSearch(title, year, cache) {
   const ck = 'search:' + title.toLowerCase() + '|' + (year || '');
   if (cache[ck]) return cache[ck];
   const params = { query: title };
   if (year) params.year = year;
-  const data = await tmdbGet('/search/movie', params, apiKey);
+  const data = await tmdbGet('/search/movie', params);
   const hit = (data.results && data.results[0]) || null;
   cache[ck] = hit ? { id: hit.id, title: hit.title, year: (hit.release_date || '').slice(0, 4), poster: hit.poster_path } : null;
   return cache[ck];
 }
 
-async function tmdbSimilar(id, apiKey, cache) {
+async function tmdbSimilar(id, cache) {
   const ck = 'similar:' + id;
   if (cache[ck]) return cache[ck];
-  const data = await tmdbGet('/movie/' + id + '/similar', {}, apiKey);
+  const data = await tmdbGet('/movie/' + id + '/similar', {});
   cache[ck] = (data.results || []).map(m => ({
     id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
   }));
@@ -434,7 +429,6 @@ async function run() {
   document.getElementById('upload-phase').style.display = 'none';
   document.getElementById('progress-phase').style.display = 'flex';
 
-  const apiKey = tmdbInput.value.trim();
   const nameA = (document.getElementById('name-a').value.trim() || 'User A');
   const nameB = (document.getElementById('name-b').value.trim() || 'User B');
 
@@ -474,10 +468,10 @@ async function run() {
     const m = shared[i];
     showProgress('Looking up ' + (i + 1) + ' / ' + shared.length, m.title + (m.year ? ' (' + m.year + ')' : ''), 15 + Math.floor(70 * i / shared.length));
     let hit = null;
-    try { hit = await throttled(() => tmdbSearch(m.title, m.year, apiKey, cache)); } catch (e) { console.warn('search failed', m.title, e); }
+    try { hit = await throttled(() => tmdbSearch(m.title, m.year, cache)); } catch (e) { console.warn('search failed', m.title, e); }
     if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [] }); continue; }
     let similar = [];
-    try { similar = await throttled(() => tmdbSimilar(hit.id, apiKey, cache)); } catch (e) { console.warn('similar failed', m.title, e); }
+    try { similar = await throttled(() => tmdbSimilar(hit.id, cache)); } catch (e) { console.warn('similar failed', m.title, e); }
     enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar });
   }
   saveTmdbCache(cache);

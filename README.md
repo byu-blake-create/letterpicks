@@ -8,8 +8,7 @@ Live: https://letterpicks.ndblake.com
 
 1. You and a partner each export your Letterboxd data: `Settings → Data → Export Your Data`. You'll each get a `.zip`.
 2. Drop both ZIPs into Letterpicks (one per slot).
-3. Paste a free TMDB API key (themoviedb.org → Settings → API).
-4. Letterpicks parses both ZIPs **entirely in your browser** — nothing is uploaded.
+3. Letterpicks parses both ZIPs **entirely in your browser** — nothing is uploaded. TMDB lookups happen client-side using a baked-in read-only token.
 
 For each film in your shared watchlist:
 
@@ -39,12 +38,12 @@ python3 -m http.server 8000
 
 Deploy as a static site any way you like. The same pattern as letterstats works — point a Cloudflare-tunnel-routed domain at a static host (Coolify static service, GitHub Pages, Cloudflare Pages, etc.) serving `index.html`.
 
-## TMDB API key
+## TMDB API
 
-A free TMDB v3 API key is required. Get one at https://www.themoviedb.org/settings/api. The key is stored only in your browser's localStorage; it never leaves your machine except in calls direct to TMDB.
+Letterpicks ships with a baked-in TMDB v4 Read Access Token (read-only). TMDB's free tier has no daily quota — only a 50 req/sec rate limit, which a typical Letterpicks session never approaches (~10-100 calls per pair). To rotate, replace `TMDB_TOKEN` in `index.html`.
 
 ## Privacy
 
 - No server, no database. Everything happens in the browser tab.
 - Refresh the page and your uploaded ZIPs and computed picks are gone.
-- The TMDB response cache and API key live in localStorage; clear site data to wipe them.
+- The TMDB response cache lives in localStorage; clear site data to wipe it.

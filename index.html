@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Letterpicks</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>" />
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --bg: #14181c; --surface: #1c2228; --surface2: #242c36;
+      --border: #2c3a47; --green: #00e054; --text: #e8e0d5;
+      --muted: #7a8a94; --accent: #40bcf4; --warn: #f5a623;
+      --nav-bg: rgba(20,24,28,0.92);
+    }
+    [data-theme="midnight"] {
+      --bg: #0d1117; --surface: #161b22; --surface2: #1f2937;
+      --border: #2d3748; --green: #58a6ff; --text: #e6edf3;
+      --muted: #6e7681; --nav-bg: rgba(13,17,23,0.92);
+    }
+    [data-theme="crimson"] {
+      --bg: #140d0d; --surface: #1f1212; --surface2: #2a1818;
+      --border: #3d2020; --green: #ff6b6b; --text: #f0e0e0;
+      --muted: #8a6a6a; --nav-bg: rgba(20,13,13,0.92);
+    }
+    [data-theme="light"] {
+      --bg: #f5f2ea; --surface: #fffdf8; --surface2: #f0ece0;
+      --border: #d8d1c2; --green: #00843d; --text: #1a1a1a;
+      --muted: #6b6b6b; --nav-bg: rgba(245,242,234,0.95);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: var(--green); text-decoration: none; }
+    a:hover { opacity: 0.85; }
+
+    .top-bar { display: flex; align-items: center; justify-content: flex-end; padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--border); background: var(--nav-bg); position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px); }
+    .crosslink { font-size: 0.8rem; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0.4rem 0.9rem; transition: color 0.15s, border-color 0.15s; }
+    .crosslink:hover { color: var(--text); border-color: var(--text); }
+    .crosslink strong { color: var(--green); }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 3rem 1.5rem; }
+    #upload-phase { display: flex; flex-direction: column; align-items: center; gap: 1.6rem; }
+    .logo { color: var(--green); font-size: 2rem; font-weight: 700; letter-spacing: -1px; }
+    .logo span { color: var(--text); font-weight: 300; }
+    .tag { color: var(--muted); font-size: 0.9rem; margin-top: -0.7rem; text-align: center; max-width: 540px; line-height: 1.5; }
+
+    .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: 100%; max-width: 700px; }
+    @media (max-width: 640px) { .user-grid { grid-template-columns: 1fr; } }
+    .user-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.1rem; display: flex; flex-direction: column; gap: 0.8rem; }
+    .user-card h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .name-input {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.6rem 0.85rem; color: var(--text); font-size: 0.9rem; outline: none; width: 100%;
+      transition: border-color 0.2s;
+    }
+    .name-input:focus { border-color: var(--green); }
+    .drop-zone {
+      width: 100%; border: 2px dashed var(--border); border-radius: 12px;
+      padding: 1.6rem 1rem; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.over { border-color: var(--green); background: rgba(0,224,84,0.04); }
+    .drop-zone input { display: none; }
+    .drop-zone .icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+    .drop-zone p { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+    .drop-zone strong { color: var(--text); font-size: 0.9rem; }
+    .file-chosen { color: var(--green); font-size: 0.78rem; margin-top: 0.4rem; word-break: break-all; }
+
+    .field-group { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 0.4rem; }
+    .field-group label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .field-group input {
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.7rem 1rem; color: var(--text); font-size: 0.95rem; outline: none; width: 100%;
+      transition: border-color 0.2s;
+    }
+    .field-group input:focus { border-color: var(--green); }
+    .field-group small { color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
+    .field-group small code { background: var(--surface2); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85em; }
+
+    .btn {
+      background: var(--green); color: #0a0f0a; border: none; border-radius: 10px;
+      padding: 0.85rem 2.5rem; font-size: 1rem; font-weight: 700; cursor: pointer;
+      transition: opacity 0.15s; letter-spacing: 0.01em;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn:disabled { opacity: 0.35; cursor: default; }
+
+    #progress-phase { display: none; flex-direction: column; align-items: center; gap: 1.4rem; text-align: center; padding-top: 4rem; }
+    .progress-label { color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+    .progress-bar-wrap { width: 100%; max-width: 420px; height: 6px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: var(--green); border-radius: 4px; transition: width 0.3s; width: 0%; }
+    .progress-title { font-size: 1.1rem; color: var(--text); }
+
+    #report-phase { display: none; }
+    .report-container { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem; }
+    .rep-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+    .rep-header h1 { font-size: 1.8rem; color: var(--green); letter-spacing: -0.5px; }
+    .rep-header .meta { color: var(--muted); font-size: 0.85rem; }
+    .back-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 0.4rem 0.9rem; font-size: 0.8rem; cursor: pointer; margin-left: auto; }
+    .back-btn:hover { border-color: var(--text); color: var(--text); }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin-bottom: 2.5rem; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1rem; text-align: center; }
+    .stat-card .val { font-size: 2rem; font-weight: 700; color: var(--green); line-height: 1.1; }
+    .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.3rem; }
+
+    .section { margin-bottom: 2.5rem; }
+    .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+
+    .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+    .pick-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.15s, border-color 0.15s; }
+    .pick-card:hover { transform: translateY(-2px); border-color: var(--green); }
+    .pick-card .poster-wrap { aspect-ratio: 2/3; background: var(--surface2); position: relative; overflow: hidden; }
+    .pick-card .poster-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pick-card .poster-wrap .rank-badge { position: absolute; top: 0.5rem; left: 0.5rem; background: var(--green); color: #0a0f0a; font-weight: 700; font-size: 0.85rem; padding: 0.2rem 0.55rem; border-radius: 999px; }
+    .pick-card .body { padding: 0.8rem 0.9rem; display: flex; flex-direction: column; gap: 0.4rem; }
+    .pick-card .title { font-size: 0.95rem; color: var(--text); font-weight: 600; line-height: 1.25; }
+    .pick-card .year { font-size: 0.78rem; color: var(--muted); }
+    .pick-card .scores { display: flex; gap: 0.6rem; font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; flex-wrap: wrap; }
+    .pick-card .scores .score-pill { background: var(--surface2); border-radius: 999px; padding: 0.15rem 0.6rem; }
+    .pick-card .scores .score-pill .star { color: var(--green); }
+    .pick-card .reason { font-size: 0.78rem; color: var(--muted); line-height: 1.4; margin-top: 0.3rem; }
+    .pick-card .lb-link { font-size: 0.78rem; margin-top: 0.4rem; }
+
+    .shared-list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 1rem; }
+    .shared-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .shared-row:last-child { border-bottom: none; }
+    .shared-row .rank { color: var(--muted); font-size: 0.75rem; min-width: 1.8rem; }
+    .shared-row .title { flex: 1; color: var(--text); }
+    .shared-row .year { color: var(--muted); font-size: 0.8rem; }
+    .shared-row a { font-size: 0.78rem; }
+
+    .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; text-align: center; }
+    .err { color: var(--warn); font-size: 0.85rem; margin-top: 0.5rem; }
+
+    .palette-picker { display: flex; gap: 0.4rem; align-items: center; padding: 0 0.4rem; margin-left: auto; }
+    .palette-swatch { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s, transform 0.15s; }
+    .palette-swatch:hover, .palette-swatch.active { border-color: var(--text); transform: scale(1.2); }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="palette-picker">
+    <div class="palette-swatch active" data-theme="" style="background:#00e054" title="Emerald"></div>
+    <div class="palette-swatch" data-theme="midnight" style="background:#58a6ff" title="Midnight"></div>
+    <div class="palette-swatch" data-theme="crimson" style="background:#ff6b6b" title="Crimson"></div>
+    <div class="palette-swatch" data-theme="light" style="background:#00843d;border-color:#ccc" title="Light"></div>
+  </div>
+  <a class="crosslink" href="https://letterstats.ndblake.com" target="_blank" rel="noopener">← <strong>Letterstats</strong></a>
+</div>
+
+<!-- Upload Phase -->
+<div class="container" id="upload-phase">
+  <div class="logo">Letterpicks</div>
+  <div class="tag">Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd both enjoy most.</div>
+
+  <div class="user-grid">
+    <div class="user-card">
+      <h3>User A</h3>
+      <input class="name-input" id="name-a" placeholder="Name (e.g. Noah)" autocomplete="off" />
+      <div class="drop-zone" data-slot="a">
+        <input type="file" accept=".zip" />
+        <div class="icon">🎬</div>
+        <strong>Drop ZIP here</strong>
+        <p>or click to browse</p>
+        <p class="file-chosen"></p>
+      </div>
+    </div>
+    <div class="user-card">
+      <h3>User B</h3>
+      <input class="name-input" id="name-b" placeholder="Name (e.g. Sam)" autocomplete="off" />
+      <div class="drop-zone" data-slot="b">
+        <input type="file" accept=".zip" />
+        <div class="icon">🎬</div>
+        <strong>Drop ZIP here</strong>
+        <p>or click to browse</p>
+        <p class="file-chosen"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="field-group">
+    <label>How to get your export</label>
+    <small>On Letterboxd go to <strong>Settings → Data → Export Your Data</strong> — you'll get a <code>.zip</code> file. Drop one ZIP in each slot above.</small>
+  </div>
+
+  <div class="field-group">
+    <label>TMDB API Key <span style="color:var(--green)">(required)</span></label>
+    <input type="text" id="tmdb-key" placeholder="e.g. v3 API key, 32 hex chars" autocomplete="off" />
+    <small>Free key at <strong>themoviedb.org/settings/api</strong>. Used in your browser only — never sent anywhere else. Cached in localStorage so you don't have to re-enter it.</small>
+  </div>
+
+  <button class="btn" id="generate-btn" disabled>Find Our Picks</button>
+  <p class="err" id="upload-err"></p>
+</div>
+
+<!-- Progress Phase -->
+<div class="container" id="progress-phase">
+  <div class="progress-title" id="progress-title">Working…</div>
+  <div class="progress-label" id="progress-label"></div>
+  <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-bar"></div></div>
+</div>
+
+<!-- Report Phase -->
+<div id="report-phase">
+  <div class="report-container">
+    <div class="rep-header">
+      <h1>Letterpicks</h1>
+      <span class="meta" id="report-meta"></span>
+      <button class="back-btn" onclick="reset()">← New Picks</button>
+    </div>
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <div class="section">
+      <h2>Top Picks for Both of You</h2>
+      <div id="picks-area"></div>
+    </div>
+
+    <div class="section">
+      <h2>Full Shared Watchlist</h2>
+      <div id="shared-list-area"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Theme picker ─────────────────────────────────────────────────
+const THEME_KEY = 'lp_theme_v1';
+const savedTheme = localStorage.getItem(THEME_KEY) || '';
+if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+document.querySelectorAll('.palette-swatch').forEach(s => {
+  if ((s.dataset.theme || '') === savedTheme) {
+    document.querySelectorAll('.palette-swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+  }
+  s.addEventListener('click', () => {
+    const t = s.dataset.theme || '';
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem(THEME_KEY, t);
+    document.querySelectorAll('.palette-swatch').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+  });
+});
+
+// ─── Drop zones ───────────────────────────────────────────────────
+const files = { a: null, b: null };
+document.querySelectorAll('.drop-zone').forEach(z => {
+  const slot = z.dataset.slot;
+  const input = z.querySelector('input');
+  const chosen = z.querySelector('.file-chosen');
+  z.addEventListener('click', () => input.click());
+  z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
+  z.addEventListener('dragleave', () => z.classList.remove('over'));
+  z.addEventListener('drop', e => {
+    e.preventDefault(); z.classList.remove('over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith('.zip')) { files[slot] = f; chosen.textContent = '✓ ' + f.name; checkReady(); }
+  });
+  input.addEventListener('change', () => {
+    if (input.files[0]) { files[slot] = input.files[0]; chosen.textContent = '✓ ' + input.files[0].name; checkReady(); }
+  });
+});
+
+const KEY_KEY = 'lp_tmdb_key_v1';
+const tmdbInput = document.getElementById('tmdb-key');
+tmdbInput.value = localStorage.getItem(KEY_KEY) || '';
+tmdbInput.addEventListener('input', () => { localStorage.setItem(KEY_KEY, tmdbInput.value.trim()); checkReady(); });
+
+document.getElementById('name-a').addEventListener('input', checkReady);
+document.getElementById('name-b').addEventListener('input', checkReady);
+
+function checkReady() {
+  const ok = files.a && files.b && tmdbInput.value.trim().length >= 10;
+  document.getElementById('generate-btn').disabled = !ok;
+}
+
+document.getElementById('generate-btn').addEventListener('click', () => run().catch(e => {
+  console.error(e);
+  document.getElementById('upload-err').textContent = 'Error: ' + (e.message || e);
+  document.getElementById('upload-phase').style.display = '';
+  document.getElementById('progress-phase').style.display = 'none';
+}));
+
+function reset() {
+  files.a = null; files.b = null;
+  document.querySelectorAll('.drop-zone input').forEach(i => i.value = '');
+  document.querySelectorAll('.drop-zone .file-chosen').forEach(p => p.textContent = '');
+  document.getElementById('upload-err').textContent = '';
+  document.getElementById('generate-btn').disabled = true;
+  document.getElementById('upload-phase').style.display = '';
+  document.getElementById('progress-phase').style.display = 'none';
+  document.getElementById('report-phase').style.display = 'none';
+}
+
+// ─── Progress ─────────────────────────────────────────────────────
+function showProgress(title, label, pct) {
+  document.getElementById('progress-title').textContent = title;
+  document.getElementById('progress-label').textContent = label || '';
+  document.getElementById('progress-bar').style.width = (pct || 0) + '%';
+}
+
+// ─── Letterboxd ZIP parsing ───────────────────────────────────────
+function norm(k) { return k.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+function firstVal(row, aliases) { for (const a of aliases) if (row[a]) return row[a]; return null; }
+function parseRating(raw) {
+  if (!raw) return null;
+  raw = String(raw).trim();
+  if (/^\d+(\.\d+)?$/.test(raw)) return parseFloat(raw);
+  if (/^[★½]+$/.test(raw)) {
+    let v = 0;
+    for (const c of raw) v += c === '★' ? 1 : 0.5;
+    return v;
+  }
+  return null;
+}
+
+async function readZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const out = { ratings: [], watchlist: [], diary: [] };
+  for (const name of Object.keys(zip.files)) {
+    const lower = name.toLowerCase();
+    if (lower.endsWith('ratings.csv')) out.ratings = await parseCSV(zip.files[name]);
+    else if (lower.endsWith('watchlist.csv')) out.watchlist = await parseCSV(zip.files[name]);
+    else if (lower.endsWith('diary.csv')) out.diary = await parseCSV(zip.files[name]);
+  }
+  return out;
+}
+
+async function parseCSV(zipEntry) {
+  const text = await zipEntry.async('string');
+  return new Promise(resolve => {
+    Papa.parse(text, { header: true, skipEmptyLines: true, complete: r => resolve(r.data) });
+  });
+}
+
+function normalizeRows(rows) {
+  return rows.map(raw => {
+    const row = {};
+    for (const k in raw) row[norm(k)] = (raw[k] == null ? '' : String(raw[k])).trim();
+    return {
+      title: firstVal(row, ['name','title','film','film_name','movie']) || '',
+      year: parseInt(firstVal(row, ['year','release_year'])) || null,
+      uri: firstVal(row, ['letterboxd_uri','letterboxd_url','uri','url']) || '',
+      rating: parseRating(firstVal(row, ['rating','your_rating','stars'])),
+    };
+  }).filter(r => r.title);
+}
+
+function makeKey(r) {
+  if (r.uri) return r.uri.toLowerCase().replace(/\/$/, '');
+  return r.title.toLowerCase() + '|' + (r.year || '');
+}
+
+// ─── TMDB ─────────────────────────────────────────────────────────
+const TMDB = 'https://api.themoviedb.org/3';
+const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
+const TMDB_CACHE_KEY = 'lp_tmdb_cache_v1';
+function loadTmdbCache() { try { return JSON.parse(localStorage.getItem(TMDB_CACHE_KEY) || '{}'); } catch { return {}; } }
+function saveTmdbCache(c) { try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(c)); } catch {} }
+
+async function tmdbGet(path, params, apiKey) {
+  const p = new URLSearchParams({ api_key: apiKey, ...params });
+  const res = await fetch(TMDB + path + '?' + p);
+  if (!res.ok) throw new Error('TMDB ' + res.status + ' on ' + path);
+  return res.json();
+}
+
+async function tmdbSearch(title, year, apiKey, cache) {
+  const ck = 'search:' + title.toLowerCase() + '|' + (year || '');
+  if (cache[ck]) return cache[ck];
+  const params = { query: title };
+  if (year) params.year = year;
+  const data = await tmdbGet('/search/movie', params, apiKey);
+  const hit = (data.results && data.results[0]) || null;
+  cache[ck] = hit ? { id: hit.id, title: hit.title, year: (hit.release_date || '').slice(0, 4), poster: hit.poster_path } : null;
+  return cache[ck];
+}
+
+async function tmdbSimilar(id, apiKey, cache) {
+  const ck = 'similar:' + id;
+  if (cache[ck]) return cache[ck];
+  const data = await tmdbGet('/movie/' + id + '/similar', {}, apiKey);
+  cache[ck] = (data.results || []).map(m => ({
+    id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
+  }));
+  return cache[ck];
+}
+
+// Throttle: ~30 req/sec to be safely under TMDB's 50/sec limit.
+let lastReq = 0;
+async function throttled(fn) {
+  const wait = Math.max(0, 33 - (Date.now() - lastReq));
+  if (wait) await new Promise(r => setTimeout(r, wait));
+  lastReq = Date.now();
+  return fn();
+}
+
+// ─── Algorithm ────────────────────────────────────────────────────
+// For each shared-watchlist candidate:
+//   1. Look up TMDB id
+//   2. Fetch /similar (TMDB-curated list of ~20 similar movies)
+//   3. For each user, find which of those similar movies the user has rated
+//      (matched by title+year); average those ratings -> predicted score
+//   4. Combined = harmonic mean of two predicted scores; fall back to user
+//      overall avg rating if no similarity overlap exists.
+// Why harmonic mean: penalizes a candidate one user clearly disliked
+// while still rewarding mutual upside.
+
+function buildRatedIndex(rows) {
+  const idx = new Map();
+  for (const r of rows) {
+    if (r.rating == null) continue;
+    const k = (r.title || '').toLowerCase() + '|' + (r.year || '');
+    idx.set(k, r.rating);
+  }
+  return idx;
+}
+
+function userAvg(ratings) {
+  if (!ratings.length) return null;
+  return ratings.reduce((a, b) => a + b, 0) / ratings.length;
+}
+
+function harmonic(a, b) {
+  if (a == null || b == null) return null;
+  if (a <= 0 || b <= 0) return 0;
+  return 2 * a * b / (a + b);
+}
+
+async function run() {
+  document.getElementById('upload-err').textContent = '';
+  document.getElementById('upload-phase').style.display = 'none';
+  document.getElementById('progress-phase').style.display = 'flex';
+
+  const apiKey = tmdbInput.value.trim();
+  const nameA = (document.getElementById('name-a').value.trim() || 'User A');
+  const nameB = (document.getElementById('name-b').value.trim() || 'User B');
+
+  showProgress('Reading exports…', 'parsing both ZIPs', 5);
+  const [rawA, rawB] = await Promise.all([readZip(files.a), readZip(files.b)]);
+  const a = { name: nameA, ratings: normalizeRows(rawA.ratings), watchlist: normalizeRows(rawA.watchlist), diary: normalizeRows(rawA.diary) };
+  const b = { name: nameB, ratings: normalizeRows(rawB.ratings), watchlist: normalizeRows(rawB.watchlist), diary: normalizeRows(rawB.diary) };
+
+  if (!a.watchlist.length && !a.diary.length) throw new Error(nameA + "'s ZIP has no watchlist.csv");
+  if (!b.watchlist.length && !b.diary.length) throw new Error(nameB + "'s ZIP has no watchlist.csv");
+
+  const aRatedIdx = buildRatedIndex(a.ratings);
+  const bRatedIdx = buildRatedIndex(b.ratings);
+  const aAvg = userAvg([...aRatedIdx.values()]);
+  const bAvg = userAvg([...bRatedIdx.values()]);
+
+  // Intersect watchlists
+  const aMap = new Map(a.watchlist.map(r => [makeKey(r), r]));
+  const shared = [];
+  for (const rb of b.watchlist) {
+    const k = makeKey(rb);
+    const ra = aMap.get(k);
+    if (ra) shared.push({ title: ra.title || rb.title, year: ra.year || rb.year, uri: ra.uri || rb.uri, key: k });
+  }
+
+  showProgress('Found ' + shared.length + ' shared watchlist movies', 'looking up TMDB metadata…', 15);
+
+  if (!shared.length) {
+    renderReport({ a, b, shared: [], picks: [], aAvg, bAvg });
+    return;
+  }
+
+  // TMDB: search each candidate, then fetch /similar
+  const cache = loadTmdbCache();
+  const enriched = [];
+  for (let i = 0; i < shared.length; i++) {
+    const m = shared[i];
+    showProgress('Looking up ' + (i + 1) + ' / ' + shared.length, m.title + (m.year ? ' (' + m.year + ')' : ''), 15 + Math.floor(70 * i / shared.length));
+    let hit = null;
+    try { hit = await throttled(() => tmdbSearch(m.title, m.year, apiKey, cache)); } catch (e) { console.warn('search failed', m.title, e); }
+    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [] }); continue; }
+    let similar = [];
+    try { similar = await throttled(() => tmdbSimilar(hit.id, apiKey, cache)); } catch (e) { console.warn('similar failed', m.title, e); }
+    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar });
+  }
+  saveTmdbCache(cache);
+
+  showProgress('Scoring picks…', 'combining ratings', 90);
+
+  // Score each candidate
+  const picks = enriched.map(m => {
+    const aMatched = [], bMatched = [];
+    for (const s of m.similar) {
+      const k = (s.title || '').toLowerCase() + '|' + (s.year || '');
+      const ar = aRatedIdx.get(k);
+      const br = bRatedIdx.get(k);
+      if (ar != null) aMatched.push({ title: s.title, year: s.year, rating: ar });
+      if (br != null) bMatched.push({ title: s.title, year: s.year, rating: br });
+    }
+    const aPred = aMatched.length ? userAvg(aMatched.map(x => x.rating)) : aAvg;
+    const bPred = bMatched.length ? userAvg(bMatched.map(x => x.rating)) : bAvg;
+    const combined = harmonic(aPred, bPred);
+    return { ...m, aPred, bPred, combined, aMatched, bMatched };
+  }).sort((x, y) => (y.combined ?? -1) - (x.combined ?? -1));
+
+  showProgress('Done', '', 100);
+  await new Promise(r => setTimeout(r, 200));
+  renderReport({ a, b, shared: enriched, picks, aAvg, bAvg });
+}
+
+// ─── Render ───────────────────────────────────────────────────────
+function fmtScore(x) { return x == null ? '—' : x.toFixed(2); }
+function lbUrl(uri, title, year) {
+  if (uri) return uri.startsWith('http') ? uri : 'https://letterboxd.com' + uri;
+  const slug = (title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return 'https://letterboxd.com/film/' + slug + (year ? '-' + year : '') + '/';
+}
+
+function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
+  document.getElementById('progress-phase').style.display = 'none';
+  document.getElementById('report-phase').style.display = 'block';
+  document.getElementById('report-meta').textContent = a.name + ' & ' + b.name + ' • ' + new Date().toLocaleDateString();
+
+  const stats = [
+    { val: shared.length, label: 'Shared Watchlist' },
+    { val: a.ratings.length, label: a.name + ' Rated' },
+    { val: b.ratings.length, label: b.name + ' Rated' },
+    { val: fmtScore(aAvg), label: a.name + ' Avg ★' },
+    { val: fmtScore(bAvg), label: b.name + ' Avg ★' },
+  ];
+  document.getElementById('stat-grid').innerHTML = stats.map(s =>
+    `<div class="stat-card"><div class="val">${s.val}</div><div class="label">${escapeHtml(s.label)}</div></div>`
+  ).join('');
+
+  // Picks (filter to ones with at least some prediction signal)
+  const picksArea = document.getElementById('picks-area');
+  if (!picks.length) {
+    picksArea.innerHTML = '<div class="empty">No shared watchlist movies — nothing to pick from. 😬</div>';
+  } else {
+    const top = picks.slice(0, 24);
+    picksArea.innerHTML = '<div class="pick-grid">' + top.map((m, i) => {
+      const reason = buildReason(m, a.name, b.name);
+      const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
+      return `
+        <div class="pick-card">
+          <div class="poster-wrap">
+            ${poster}
+            <div class="rank-badge">#${i + 1}</div>
+          </div>
+          <div class="body">
+            <div class="title">${escapeHtml(m.title)}</div>
+            <div class="year">${m.year || ''}</div>
+            <div class="scores">
+              <span class="score-pill"><span class="star">★</span> ${escapeHtml(a.name)} ${fmtScore(m.aPred)}</span>
+              <span class="score-pill"><span class="star">★</span> ${escapeHtml(b.name)} ${fmtScore(m.bPred)}</span>
+            </div>
+            <div class="reason">${escapeHtml(reason)}</div>
+            <a class="lb-link" href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">View on Letterboxd ↗</a>
+          </div>
+        </div>`;
+    }).join('') + '</div>';
+  }
+
+  // Full shared list
+  const sharedArea = document.getElementById('shared-list-area');
+  if (!shared.length) {
+    sharedArea.innerHTML = '<div class="empty">No shared watchlist movies.</div>';
+  } else {
+    const sorted = [...shared].sort((x, y) => (x.title || '').localeCompare(y.title || ''));
+    sharedArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
+      `<div class="shared-row">
+        <span class="rank">${i + 1}</span>
+        <span class="title">${escapeHtml(m.title)}</span>
+        <span class="year">${m.year || ''}</span>
+        <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
+      </div>`
+    ).join('') + '</div>';
+  }
+}
+
+function buildReason(m, nameA, nameB) {
+  if (!m.aMatched.length && !m.bMatched.length) return 'No overlap with your past ratings — using your overall averages.';
+  const parts = [];
+  if (m.aMatched.length) {
+    const top = [...m.aMatched].sort((x, y) => y.rating - x.rating)[0];
+    parts.push(nameA + ' rated similar films like "' + top.title + '" ' + fmtScore(top.rating) + '★');
+  }
+  if (m.bMatched.length) {
+    const top = [...m.bMatched].sort((x, y) => y.rating - x.rating)[0];
+    parts.push(nameB + ' rated "' + top.title + '" ' + fmtScore(top.rating) + '★');
+  }
+  return parts.join(' • ');
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

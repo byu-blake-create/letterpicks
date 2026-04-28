@@ -133,6 +133,15 @@
     .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; text-align: center; }
     .err { color: var(--warn); font-size: 0.85rem; margin-top: 0.5rem; }
 
+    .filters { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1rem; align-items: center; }
+    .filter-group { display: flex; align-items: center; gap: 0.4rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.35rem 0.8rem; font-size: 0.78rem; color: var(--muted); }
+    .filter-group label { color: var(--muted); }
+    .filter-group select { background: transparent; color: var(--text); border: none; font-size: 0.8rem; outline: none; cursor: pointer; }
+    .filter-group select option { background: var(--surface); color: var(--text); }
+    .filter-clear { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 0.35rem 0.8rem; font-size: 0.78rem; cursor: pointer; }
+    .filter-clear:hover { color: var(--text); border-color: var(--text); }
+    .filter-count { color: var(--muted); font-size: 0.78rem; margin-left: auto; }
+
     .palette-picker { display: flex; gap: 0.4rem; align-items: center; padding: 0 0.4rem; margin-left: auto; }
     .palette-swatch { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: border-color 0.15s, transform 0.15s; }
     .palette-swatch:hover, .palette-swatch.active { border-color: var(--text); transform: scale(1.2); }
@@ -208,6 +217,7 @@
 
     <div class="section">
       <h2>Top Picks for Both of You</h2>
+      <div class="filters" id="filters"></div>
       <div id="picks-area"></div>
     </div>
 
@@ -349,7 +359,7 @@ function makeKey(r) {
 // ─── TMDB ─────────────────────────────────────────────────────────
 const TMDB = 'https://api.themoviedb.org/3';
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
-const TMDB_CACHE_KEY = 'lp_tmdb_cache_v3';
+const TMDB_CACHE_KEY = 'lp_tmdb_cache_v4';
 function loadTmdbCache() { try { return JSON.parse(localStorage.getItem(TMDB_CACHE_KEY) || '{}'); } catch { return {}; } }
 function saveTmdbCache(c) { try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(c)); } catch {} }
 
@@ -386,6 +396,7 @@ async function tmdbDetails(id, cache) {
   cache[ck] = {
     runtime: data.runtime || null,
     certification: cert,
+    genres: (data.genres || []).map(g => g.name),
     similar: ((data.similar && data.similar.results) || []).map(m => ({
       id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
     })),
@@ -479,10 +490,10 @@ async function run() {
     showProgress('Looking up ' + (i + 1) + ' / ' + shared.length, m.title + (m.year ? ' (' + m.year + ')' : ''), 15 + Math.floor(70 * i / shared.length));
     let hit = null;
     try { hit = await throttled(() => tmdbSearch(m.title, m.year, cache)); } catch (e) { console.warn('search failed', m.title, e); }
-    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [], runtime: null, certification: null }); continue; }
-    let details = { runtime: null, certification: null, similar: [] };
+    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [], runtime: null, certification: null, genres: [] }); continue; }
+    let details = { runtime: null, certification: null, genres: [], similar: [] };
     try { details = await throttled(() => tmdbDetails(hit.id, cache)); } catch (e) { console.warn('details failed', m.title, e); }
-    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar: details.similar, runtime: details.runtime, certification: details.certification });
+    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar: details.similar, runtime: details.runtime, certification: details.certification, genres: details.genres });
   }
   saveTmdbCache(cache);
 
@@ -538,34 +549,7 @@ function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
     `<div class="stat-card"><div class="val">${s.val}</div><div class="label">${escapeHtml(s.label)}</div></div>`
   ).join('');
 
-  // Picks (filter to ones with at least some prediction signal)
-  const picksArea = document.getElementById('picks-area');
-  if (!picks.length) {
-    picksArea.innerHTML = '<div class="empty">No shared watchlist movies — nothing to pick from. 😬</div>';
-  } else {
-    const top = picks.slice(0, 24);
-    picksArea.innerHTML = '<div class="pick-grid">' + top.map((m, i) => {
-      const reason = buildReason(m, a.name, b.name);
-      const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
-      return `
-        <div class="pick-card">
-          <div class="poster-wrap">
-            ${poster}
-            <div class="rank-badge">#${i + 1}</div>
-          </div>
-          <div class="body">
-            <div class="title">${escapeHtml(m.title)}</div>
-            <div class="year">${[m.year, fmtRuntime(m.runtime), m.certification].filter(Boolean).join(' • ')}</div>
-            <div class="scores">
-              <span class="score-pill"><span class="star">★</span> ${escapeHtml(a.name)} ${fmtScore(m.aPred)}</span>
-              <span class="score-pill"><span class="star">★</span> ${escapeHtml(b.name)} ${fmtScore(m.bPred)}</span>
-            </div>
-            <div class="reason">${escapeHtml(reason)}</div>
-            <a class="lb-link" href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">View on Letterboxd ↗</a>
-          </div>
-        </div>`;
-    }).join('') + '</div>';
-  }
+  renderPicksWithFilters(picks, a.name, b.name);
 
   // Full shared list
   const sharedArea = document.getElementById('shared-list-area');
@@ -582,6 +566,119 @@ function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
       </div>`
     ).join('') + '</div>';
   }
+}
+
+const FILTER_STATE = { runtime: 'any', cert: 'any', genre: 'any', decade: 'any' };
+const CERT_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR'];
+
+function renderPicksWithFilters(picks, nameA, nameB) {
+  const filters = document.getElementById('filters');
+  const allGenres = new Set();
+  const allDecades = new Set();
+  picks.forEach(p => {
+    (p.genres || []).forEach(g => allGenres.add(g));
+    if (p.year) allDecades.add(Math.floor(parseInt(p.year) / 10) * 10);
+  });
+  const genreList = [...allGenres].sort();
+  const decadeList = [...allDecades].sort((a, b) => b - a);
+
+  const opt = (label, val, selected) => `<option value="${escapeHtml(val)}"${val === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  filters.innerHTML = `
+    <div class="filter-group">
+      <label>Runtime</label>
+      <select data-filter="runtime">
+        ${['any','90','105','120','150'].map(v => opt(v === 'any' ? 'Any' : '≤ ' + fmtRuntime(parseInt(v)), v, FILTER_STATE.runtime)).join('')}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Rated</label>
+      <select data-filter="cert">
+        ${opt('Any', 'any', FILTER_STATE.cert)}
+        ${CERT_ORDER.map(c => opt(c, c, FILTER_STATE.cert)).join('')}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Genre</label>
+      <select data-filter="genre">
+        ${opt('Any', 'any', FILTER_STATE.genre)}
+        ${genreList.map(g => opt(g, g, FILTER_STATE.genre)).join('')}
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Decade</label>
+      <select data-filter="decade">
+        ${opt('Any', 'any', FILTER_STATE.decade)}
+        ${decadeList.map(d => opt(d + 's', String(d), FILTER_STATE.decade)).join('')}
+      </select>
+    </div>
+    <button class="filter-clear" id="filter-clear">Clear</button>
+    <span class="filter-count" id="filter-count"></span>
+  `;
+  filters.querySelectorAll('select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      FILTER_STATE[sel.dataset.filter] = sel.value;
+      drawPicks(picks, nameA, nameB);
+    });
+  });
+  document.getElementById('filter-clear').addEventListener('click', () => {
+    FILTER_STATE.runtime = FILTER_STATE.cert = FILTER_STATE.genre = FILTER_STATE.decade = 'any';
+    renderPicksWithFilters(picks, nameA, nameB);
+  });
+  drawPicks(picks, nameA, nameB);
+}
+
+function applyFilters(picks) {
+  return picks.filter(m => {
+    if (FILTER_STATE.runtime !== 'any') {
+      const max = parseInt(FILTER_STATE.runtime);
+      if (!m.runtime || m.runtime > max) return false;
+    }
+    if (FILTER_STATE.cert !== 'any' && m.certification !== FILTER_STATE.cert) return false;
+    if (FILTER_STATE.genre !== 'any' && !(m.genres || []).includes(FILTER_STATE.genre)) return false;
+    if (FILTER_STATE.decade !== 'any') {
+      const d = Math.floor(parseInt(m.year) / 10) * 10;
+      if (String(d) !== FILTER_STATE.decade) return false;
+    }
+    return true;
+  });
+}
+
+function drawPicks(picks, nameA, nameB) {
+  const picksArea = document.getElementById('picks-area');
+  const countEl = document.getElementById('filter-count');
+  if (!picks.length) {
+    picksArea.innerHTML = '<div class="empty">No shared watchlist movies — nothing to pick from. 😬</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  const filtered = applyFilters(picks);
+  if (countEl) countEl.textContent = filtered.length + ' / ' + picks.length + ' picks';
+  if (!filtered.length) {
+    picksArea.innerHTML = '<div class="empty">No picks match your filters.</div>';
+    return;
+  }
+  const top = filtered.slice(0, 24);
+  picksArea.innerHTML = '<div class="pick-grid">' + top.map((m, i) => {
+    const reason = buildReason(m, nameA, nameB);
+    const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
+    return `
+      <div class="pick-card">
+        <div class="poster-wrap">
+          ${poster}
+          <div class="rank-badge">#${i + 1}</div>
+        </div>
+        <div class="body">
+          <div class="title">${escapeHtml(m.title)}</div>
+          <div class="year">${[m.year, fmtRuntime(m.runtime), m.certification].filter(Boolean).join(' • ')}</div>
+          <div class="scores">
+            <span class="score-pill"><span class="star">★</span> ${escapeHtml(nameA)} ${fmtScore(m.aPred)}</span>
+            <span class="score-pill"><span class="star">★</span> ${escapeHtml(nameB)} ${fmtScore(m.bPred)}</span>
+          </div>
+          <div class="reason">${escapeHtml(reason)}</div>
+          <a class="lb-link" href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">View on Letterboxd ↗</a>
+        </div>
+      </div>`;
+  }).join('') + '</div>';
 }
 
 function buildReason(m, nameA, nameB) {

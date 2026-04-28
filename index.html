@@ -349,7 +349,7 @@ function makeKey(r) {
 // ─── TMDB ─────────────────────────────────────────────────────────
 const TMDB = 'https://api.themoviedb.org/3';
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
-const TMDB_CACHE_KEY = 'lp_tmdb_cache_v1';
+const TMDB_CACHE_KEY = 'lp_tmdb_cache_v3';
 function loadTmdbCache() { try { return JSON.parse(localStorage.getItem(TMDB_CACHE_KEY) || '{}'); } catch { return {}; } }
 function saveTmdbCache(c) { try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(c)); } catch {} }
 
@@ -373,13 +373,23 @@ async function tmdbSearch(title, year, cache) {
   return cache[ck];
 }
 
-async function tmdbSimilar(id, cache) {
-  const ck = 'similar:' + id;
+async function tmdbDetails(id, cache) {
+  const ck = 'details:' + id;
   if (cache[ck]) return cache[ck];
-  const data = await tmdbGet('/movie/' + id + '/similar', {});
-  cache[ck] = (data.results || []).map(m => ({
-    id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
-  }));
+  const data = await tmdbGet('/movie/' + id, { append_to_response: 'similar,release_dates' });
+  let cert = null;
+  const usEntry = ((data.release_dates && data.release_dates.results) || []).find(r => r.iso_3166_1 === 'US');
+  if (usEntry) {
+    const withCert = (usEntry.release_dates || []).find(d => d.certification && d.certification.trim());
+    if (withCert) cert = withCert.certification.trim();
+  }
+  cache[ck] = {
+    runtime: data.runtime || null,
+    certification: cert,
+    similar: ((data.similar && data.similar.results) || []).map(m => ({
+      id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
+    })),
+  };
   return cache[ck];
 }
 
@@ -469,10 +479,10 @@ async function run() {
     showProgress('Looking up ' + (i + 1) + ' / ' + shared.length, m.title + (m.year ? ' (' + m.year + ')' : ''), 15 + Math.floor(70 * i / shared.length));
     let hit = null;
     try { hit = await throttled(() => tmdbSearch(m.title, m.year, cache)); } catch (e) { console.warn('search failed', m.title, e); }
-    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [] }); continue; }
-    let similar = [];
-    try { similar = await throttled(() => tmdbSimilar(hit.id, cache)); } catch (e) { console.warn('similar failed', m.title, e); }
-    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar });
+    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [], runtime: null, certification: null }); continue; }
+    let details = { runtime: null, certification: null, similar: [] };
+    try { details = await throttled(() => tmdbDetails(hit.id, cache)); } catch (e) { console.warn('details failed', m.title, e); }
+    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar: details.similar, runtime: details.runtime, certification: details.certification });
   }
   saveTmdbCache(cache);
 
@@ -501,6 +511,11 @@ async function run() {
 
 // ─── Render ───────────────────────────────────────────────────────
 function fmtScore(x) { return x == null ? '—' : x.toFixed(2); }
+function fmtRuntime(min) {
+  if (!min) return '';
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? (m ? h + 'h ' + m + 'm' : h + 'h') : m + 'm';
+}
 function lbUrl(uri, title, year) {
   if (uri) return uri.startsWith('http') ? uri : 'https://letterboxd.com' + uri;
   const slug = (title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -540,7 +555,7 @@ function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
           </div>
           <div class="body">
             <div class="title">${escapeHtml(m.title)}</div>
-            <div class="year">${m.year || ''}</div>
+            <div class="year">${[m.year, fmtRuntime(m.runtime), m.certification].filter(Boolean).join(' • ')}</div>
             <div class="scores">
               <span class="score-pill"><span class="star">★</span> ${escapeHtml(a.name)} ${fmtScore(m.aPred)}</span>
               <span class="score-pill"><span class="star">★</span> ${escapeHtml(b.name)} ${fmtScore(m.bPred)}</span>

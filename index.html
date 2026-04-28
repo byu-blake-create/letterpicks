@@ -46,7 +46,11 @@
     .tag { color: var(--muted); font-size: 0.9rem; margin-top: -0.7rem; text-align: center; max-width: 540px; line-height: 1.5; }
 
     .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: 100%; max-width: 700px; }
-    @media (max-width: 640px) { .user-grid { grid-template-columns: 1fr; } }
+    .user-grid.three { grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 640px) { .user-grid, .user-grid.three { grid-template-columns: 1fr; } }
+    .mode-tabs { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem; }
+    .mode-tab { background: none; border: none; color: var(--muted); font-size: 0.82rem; padding: 0.4rem 1rem; border-radius: 999px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .mode-tab.active { background: var(--green); color: #0a0f0a; font-weight: 600; }
     .user-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.1rem; display: flex; flex-direction: column; gap: 0.8rem; }
     .user-card h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
     .name-input {
@@ -162,32 +166,14 @@
 <!-- Upload Phase -->
 <div class="container" id="upload-phase">
   <div class="logo">Letterpicks</div>
-  <div class="tag">Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd both enjoy most.</div>
+  <div class="tag" id="tag-line">Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd all enjoy most.</div>
 
-  <div class="user-grid">
-    <div class="user-card">
-      <h3>User A</h3>
-      <input class="name-input" id="name-a" placeholder="Name (e.g. Noah)" autocomplete="off" />
-      <div class="drop-zone" data-slot="a">
-        <input type="file" accept=".zip" />
-        <div class="icon">🎬</div>
-        <strong>Drop ZIP here</strong>
-        <p>or click to browse</p>
-        <p class="file-chosen"></p>
-      </div>
-    </div>
-    <div class="user-card">
-      <h3>User B</h3>
-      <input class="name-input" id="name-b" placeholder="Name (e.g. Sam)" autocomplete="off" />
-      <div class="drop-zone" data-slot="b">
-        <input type="file" accept=".zip" />
-        <div class="icon">🎬</div>
-        <strong>Drop ZIP here</strong>
-        <p>or click to browse</p>
-        <p class="file-chosen"></p>
-      </div>
-    </div>
+  <div class="mode-tabs" id="mode-tabs">
+    <button class="mode-tab active" data-mode="2">2 people</button>
+    <button class="mode-tab" data-mode="3">3 people</button>
   </div>
+
+  <div class="user-grid" id="user-grid"></div>
 
   <div class="field-group">
     <label>How to get your export</label>
@@ -248,34 +234,73 @@ document.querySelectorAll('.palette-swatch').forEach(s => {
   });
 });
 
-// ─── Drop zones ───────────────────────────────────────────────────
-const files = { a: null, b: null };
-document.querySelectorAll('.drop-zone').forEach(z => {
-  const slot = z.dataset.slot;
-  const input = z.querySelector('input');
-  const chosen = z.querySelector('.file-chosen');
-  z.addEventListener('click', () => input.click());
-  z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
-  z.addEventListener('dragleave', () => z.classList.remove('over'));
-  z.addEventListener('drop', e => {
-    e.preventDefault(); z.classList.remove('over');
-    const f = e.dataTransfer.files[0];
-    if (f && f.name.endsWith('.zip')) { files[slot] = f; chosen.textContent = '✓ ' + f.name; checkReady(); }
+// ─── Mode tabs + Drop zones ───────────────────────────────────────
+const SLOT_LABELS = ['User A', 'User B', 'User C'];
+const SLOT_PLACEHOLDERS = ['Name (e.g. Noah)', 'Name (e.g. Sam)', 'Name (e.g. Alex)'];
+let MODE = 2;
+const files = [null, null, null];
+const names = ['', '', ''];
+
+function buildUserGrid() {
+  const grid = document.getElementById('user-grid');
+  grid.classList.toggle('three', MODE === 3);
+  grid.innerHTML = '';
+  for (let i = 0; i < MODE; i++) {
+    const card = document.createElement('div');
+    card.className = 'user-card';
+    card.innerHTML = `
+      <h3>${SLOT_LABELS[i]}</h3>
+      <input class="name-input" data-slot-name="${i}" placeholder="${SLOT_PLACEHOLDERS[i]}" autocomplete="off" value="${escapeHtml(names[i] || '')}" />
+      <div class="drop-zone" data-slot="${i}">
+        <input type="file" accept=".zip" />
+        <div class="icon">🎬</div>
+        <strong>Drop ZIP here</strong>
+        <p>or click to browse</p>
+        <p class="file-chosen">${files[i] ? '✓ ' + escapeHtml(files[i].name) : ''}</p>
+      </div>`;
+    grid.appendChild(card);
+  }
+  grid.querySelectorAll('.drop-zone').forEach(z => {
+    const slot = parseInt(z.dataset.slot);
+    const input = z.querySelector('input');
+    const chosen = z.querySelector('.file-chosen');
+    z.addEventListener('click', e => { if (e.target.tagName !== 'INPUT') input.click(); });
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
+    z.addEventListener('dragleave', () => z.classList.remove('over'));
+    z.addEventListener('drop', e => {
+      e.preventDefault(); z.classList.remove('over');
+      const f = e.dataTransfer.files[0];
+      if (f && f.name.endsWith('.zip')) { files[slot] = f; chosen.textContent = '✓ ' + f.name; checkReady(); }
+    });
+    input.addEventListener('change', () => {
+      if (input.files[0]) { files[slot] = input.files[0]; chosen.textContent = '✓ ' + input.files[0].name; checkReady(); }
+    });
   });
-  input.addEventListener('change', () => {
-    if (input.files[0]) { files[slot] = input.files[0]; chosen.textContent = '✓ ' + input.files[0].name; checkReady(); }
+  grid.querySelectorAll('input[data-slot-name]').forEach(inp => {
+    inp.addEventListener('input', () => { names[parseInt(inp.dataset.slotName)] = inp.value; checkReady(); });
+  });
+  document.getElementById('tag-line').textContent = MODE === 3
+    ? "Drop in three Letterboxd export ZIPs and we'll find what's in all your watchlists — then rank what you'd all enjoy most."
+    : "Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd both enjoy most.";
+  checkReady();
+}
+
+document.querySelectorAll('.mode-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    MODE = parseInt(t.dataset.mode);
+    document.querySelectorAll('.mode-tab').forEach(x => x.classList.toggle('active', x === t));
+    buildUserGrid();
   });
 });
+buildUserGrid();
 
 // TMDB v4 Read Access Token (read-only, public site). Switch via /movie/...
 // uses Bearer auth instead of v3's api_key query param.
 const TMDB_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0OWVhMTczNmQ5NzRkNDkzNTA2MzhhZjk2MjQxMzhiZCIsIm5iZiI6MTc3NzMyMjU2NS41NzQwMDAxLCJzdWIiOiI2OWVmY2E0NWVmYjA0YjNlNzAyOTk5NjkiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.CBvA4k58mRoH2IE347CM-1IuvOm--wTp8L2_IPce3Vc';
 
-document.getElementById('name-a').addEventListener('input', checkReady);
-document.getElementById('name-b').addEventListener('input', checkReady);
-
 function checkReady() {
-  const ok = files.a && files.b;
+  let ok = true;
+  for (let i = 0; i < MODE; i++) if (!files[i]) ok = false;
   document.getElementById('generate-btn').disabled = !ok;
 }
 
@@ -287,9 +312,8 @@ document.getElementById('generate-btn').addEventListener('click', () => run().ca
 }));
 
 function reset() {
-  files.a = null; files.b = null;
-  document.querySelectorAll('.drop-zone input').forEach(i => i.value = '');
-  document.querySelectorAll('.drop-zone .file-chosen').forEach(p => p.textContent = '');
+  for (let i = 0; i < 3; i++) { files[i] = null; names[i] = ''; }
+  buildUserGrid();
   document.getElementById('upload-err').textContent = '';
   document.getElementById('generate-btn').disabled = true;
   document.getElementById('upload-phase').style.display = '';
@@ -439,10 +463,11 @@ function userAvg(ratings) {
   return ratings.reduce((a, b) => a + b, 0) / ratings.length;
 }
 
-function harmonic(a, b) {
-  if (a == null || b == null) return null;
-  if (a <= 0 || b <= 0) return 0;
-  return 2 * a * b / (a + b);
+function harmonicN(vals) {
+  if (!vals.length || vals.some(v => v == null)) return null;
+  if (vals.some(v => v <= 0)) return 0;
+  const sumRecip = vals.reduce((s, v) => s + 1 / v, 0);
+  return vals.length / sumRecip;
 }
 
 async function run() {
@@ -450,35 +475,38 @@ async function run() {
   document.getElementById('upload-phase').style.display = 'none';
   document.getElementById('progress-phase').style.display = 'flex';
 
-  const nameA = (document.getElementById('name-a').value.trim() || 'User A');
-  const nameB = (document.getElementById('name-b').value.trim() || 'User B');
+  const userNames = [];
+  for (let i = 0; i < MODE; i++) userNames.push(names[i].trim() || SLOT_LABELS[i]);
 
-  showProgress('Reading exports…', 'parsing both ZIPs', 5);
-  const [rawA, rawB] = await Promise.all([readZip(files.a), readZip(files.b)]);
-  const a = { name: nameA, ratings: normalizeRows(rawA.ratings), watchlist: normalizeRows(rawA.watchlist), diary: normalizeRows(rawA.diary) };
-  const b = { name: nameB, ratings: normalizeRows(rawB.ratings), watchlist: normalizeRows(rawB.watchlist), diary: normalizeRows(rawB.diary) };
+  showProgress('Reading exports…', 'parsing ' + MODE + ' ZIPs', 5);
+  const raws = await Promise.all(files.slice(0, MODE).map(f => readZip(f)));
+  const users = raws.map((raw, i) => ({
+    name: userNames[i],
+    ratings: normalizeRows(raw.ratings),
+    watchlist: normalizeRows(raw.watchlist),
+    diary: normalizeRows(raw.diary),
+  }));
+  users.forEach(u => {
+    if (!u.watchlist.length && !u.diary.length) throw new Error(u.name + "'s ZIP has no watchlist.csv");
+  });
 
-  if (!a.watchlist.length && !a.diary.length) throw new Error(nameA + "'s ZIP has no watchlist.csv");
-  if (!b.watchlist.length && !b.diary.length) throw new Error(nameB + "'s ZIP has no watchlist.csv");
+  const ratedIdxs = users.map(u => buildRatedIndex(u.ratings));
+  const avgs = ratedIdxs.map(idx => userAvg([...idx.values()]));
 
-  const aRatedIdx = buildRatedIndex(a.ratings);
-  const bRatedIdx = buildRatedIndex(b.ratings);
-  const aAvg = userAvg([...aRatedIdx.values()]);
-  const bAvg = userAvg([...bRatedIdx.values()]);
-
-  // Intersect watchlists
-  const aMap = new Map(a.watchlist.map(r => [makeKey(r), r]));
-  const shared = [];
-  for (const rb of b.watchlist) {
-    const k = makeKey(rb);
-    const ra = aMap.get(k);
-    if (ra) shared.push({ title: ra.title || rb.title, year: ra.year || rb.year, uri: ra.uri || rb.uri, key: k });
+  // Intersect watchlists across all users
+  let sharedKeys = new Map(users[0].watchlist.map(r => [makeKey(r), r]));
+  for (let i = 1; i < users.length; i++) {
+    const next = new Map();
+    const wMap = new Map(users[i].watchlist.map(r => [makeKey(r), r]));
+    for (const [k, r] of sharedKeys) if (wMap.has(k)) next.set(k, r);
+    sharedKeys = next;
   }
+  const shared = [...sharedKeys.entries()].map(([k, r]) => ({ title: r.title, year: r.year, uri: r.uri, key: k }));
 
   showProgress('Found ' + shared.length + ' shared watchlist movies', 'looking up TMDB metadata…', 15);
 
   if (!shared.length) {
-    renderReport({ a, b, shared: [], picks: [], aAvg, bAvg });
+    renderReport({ users, shared: [], picks: [], avgs });
     return;
   }
 
@@ -499,25 +527,24 @@ async function run() {
 
   showProgress('Scoring picks…', 'combining ratings', 90);
 
-  // Score each candidate
+  // Score each candidate across N users
   const picks = enriched.map(m => {
-    const aMatched = [], bMatched = [];
+    const matched = users.map(() => []);
     for (const s of m.similar) {
       const k = (s.title || '').toLowerCase() + '|' + (s.year || '');
-      const ar = aRatedIdx.get(k);
-      const br = bRatedIdx.get(k);
-      if (ar != null) aMatched.push({ title: s.title, year: s.year, rating: ar });
-      if (br != null) bMatched.push({ title: s.title, year: s.year, rating: br });
+      for (let i = 0; i < users.length; i++) {
+        const r = ratedIdxs[i].get(k);
+        if (r != null) matched[i].push({ title: s.title, year: s.year, rating: r });
+      }
     }
-    const aPred = aMatched.length ? userAvg(aMatched.map(x => x.rating)) : aAvg;
-    const bPred = bMatched.length ? userAvg(bMatched.map(x => x.rating)) : bAvg;
-    const combined = harmonic(aPred, bPred);
-    return { ...m, aPred, bPred, combined, aMatched, bMatched };
+    const preds = matched.map((arr, i) => arr.length ? userAvg(arr.map(x => x.rating)) : avgs[i]);
+    const combined = harmonicN(preds);
+    return { ...m, preds, matched, combined };
   }).sort((x, y) => (y.combined ?? -1) - (x.combined ?? -1));
 
   showProgress('Done', '', 100);
   await new Promise(r => setTimeout(r, 200));
-  renderReport({ a, b, shared: enriched, picks, aAvg, bAvg });
+  renderReport({ users, shared: enriched, picks, avgs });
 }
 
 // ─── Render ───────────────────────────────────────────────────────
@@ -533,23 +560,21 @@ function lbUrl(uri, title, year) {
   return 'https://letterboxd.com/film/' + slug + (year ? '-' + year : '') + '/';
 }
 
-function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
+function renderReport({ users, shared, picks, avgs }) {
   document.getElementById('progress-phase').style.display = 'none';
   document.getElementById('report-phase').style.display = 'block';
-  document.getElementById('report-meta').textContent = a.name + ' & ' + b.name + ' • ' + new Date().toLocaleDateString();
+  document.getElementById('report-meta').textContent = users.map(u => u.name).join(' & ') + ' • ' + new Date().toLocaleDateString();
 
-  const stats = [
-    { val: shared.length, label: 'Shared Watchlist' },
-    { val: a.ratings.length, label: a.name + ' Rated' },
-    { val: b.ratings.length, label: b.name + ' Rated' },
-    { val: fmtScore(aAvg), label: a.name + ' Avg ★' },
-    { val: fmtScore(bAvg), label: b.name + ' Avg ★' },
-  ];
+  const stats = [{ val: shared.length, label: 'Shared Watchlist' }];
+  users.forEach((u, i) => {
+    stats.push({ val: u.ratings.length, label: u.name + ' Rated' });
+    stats.push({ val: fmtScore(avgs[i]), label: u.name + ' Avg ★' });
+  });
   document.getElementById('stat-grid').innerHTML = stats.map(s =>
     `<div class="stat-card"><div class="val">${s.val}</div><div class="label">${escapeHtml(s.label)}</div></div>`
   ).join('');
 
-  renderPicksWithFilters(picks, a.name, b.name);
+  renderPicksWithFilters(picks, users.map(u => u.name));
 
   // Full shared list
   const sharedArea = document.getElementById('shared-list-area');
@@ -571,7 +596,7 @@ function renderReport({ a, b, shared, picks, aAvg, bAvg }) {
 const FILTER_STATE = { runtime: 'any', cert: 'any', genre: 'any', decade: 'any' };
 const CERT_ORDER = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR'];
 
-function renderPicksWithFilters(picks, nameA, nameB) {
+function renderPicksWithFilters(picks, userNames) {
   const filters = document.getElementById('filters');
   const allGenres = new Set();
   const allDecades = new Set();
@@ -617,14 +642,14 @@ function renderPicksWithFilters(picks, nameA, nameB) {
   filters.querySelectorAll('select').forEach(sel => {
     sel.addEventListener('change', () => {
       FILTER_STATE[sel.dataset.filter] = sel.value;
-      drawPicks(picks, nameA, nameB);
+      drawPicks(picks, userNames);
     });
   });
   document.getElementById('filter-clear').addEventListener('click', () => {
     FILTER_STATE.runtime = FILTER_STATE.cert = FILTER_STATE.genre = FILTER_STATE.decade = 'any';
-    renderPicksWithFilters(picks, nameA, nameB);
+    renderPicksWithFilters(picks, userNames);
   });
-  drawPicks(picks, nameA, nameB);
+  drawPicks(picks, userNames);
 }
 
 function applyFilters(picks) {
@@ -643,7 +668,7 @@ function applyFilters(picks) {
   });
 }
 
-function drawPicks(picks, nameA, nameB) {
+function drawPicks(picks, userNames) {
   const picksArea = document.getElementById('picks-area');
   const countEl = document.getElementById('filter-count');
   if (!picks.length) {
@@ -659,8 +684,11 @@ function drawPicks(picks, nameA, nameB) {
   }
   const top = filtered.slice(0, 24);
   picksArea.innerHTML = '<div class="pick-grid">' + top.map((m, i) => {
-    const reason = buildReason(m, nameA, nameB);
+    const reason = buildReason(m, userNames);
     const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
+    const scorePills = userNames.map((n, j) =>
+      `<span class="score-pill"><span class="star">★</span> ${escapeHtml(n)} ${fmtScore(m.preds[j])}</span>`
+    ).join('');
     return `
       <div class="pick-card">
         <div class="poster-wrap">
@@ -670,10 +698,7 @@ function drawPicks(picks, nameA, nameB) {
         <div class="body">
           <div class="title">${escapeHtml(m.title)}</div>
           <div class="year">${[m.year, fmtRuntime(m.runtime), m.certification].filter(Boolean).join(' • ')}</div>
-          <div class="scores">
-            <span class="score-pill"><span class="star">★</span> ${escapeHtml(nameA)} ${fmtScore(m.aPred)}</span>
-            <span class="score-pill"><span class="star">★</span> ${escapeHtml(nameB)} ${fmtScore(m.bPred)}</span>
-          </div>
+          <div class="scores">${scorePills}</div>
           <div class="reason">${escapeHtml(reason)}</div>
           <a class="lb-link" href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">View on Letterboxd ↗</a>
         </div>
@@ -681,17 +706,15 @@ function drawPicks(picks, nameA, nameB) {
   }).join('') + '</div>';
 }
 
-function buildReason(m, nameA, nameB) {
-  if (!m.aMatched.length && !m.bMatched.length) return 'No overlap with your past ratings — using your overall averages.';
+function buildReason(m, userNames) {
+  const anyMatched = m.matched.some(arr => arr.length);
+  if (!anyMatched) return 'No overlap with your past ratings — using your overall averages.';
   const parts = [];
-  if (m.aMatched.length) {
-    const top = [...m.aMatched].sort((x, y) => y.rating - x.rating)[0];
-    parts.push(nameA + ' rated similar films like "' + top.title + '" ' + fmtScore(top.rating) + '★');
-  }
-  if (m.bMatched.length) {
-    const top = [...m.bMatched].sort((x, y) => y.rating - x.rating)[0];
-    parts.push(nameB + ' rated "' + top.title + '" ' + fmtScore(top.rating) + '★');
-  }
+  m.matched.forEach((arr, i) => {
+    if (!arr.length) return;
+    const top = [...arr].sort((x, y) => y.rating - x.rating)[0];
+    parts.push(userNames[i] + ' liked "' + top.title + '" ' + fmtScore(top.rating) + '★');
+  });
   return parts.join(' • ');
 }
 

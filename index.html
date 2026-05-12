@@ -43,7 +43,7 @@
     #upload-phase { display: flex; flex-direction: column; align-items: center; gap: 1.6rem; }
     .logo { color: var(--green); font-size: 2rem; font-weight: 700; letter-spacing: -1px; }
     .logo span { color: var(--text); font-weight: 300; }
-    .tag { color: var(--muted); font-size: 0.9rem; margin-top: -0.7rem; text-align: center; max-width: 540px; line-height: 1.5; }
+    .tag { color: var(--muted); font-size: 0.9rem; margin-top: -0.7rem; text-align: center; max-width: 560px; line-height: 1.5; }
 
     .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: 100%; max-width: 700px; }
     .user-grid.three { grid-template-columns: 1fr 1fr 1fr; }
@@ -109,7 +109,8 @@
     .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.3rem; }
 
     .section { margin-bottom: 2.5rem; }
-    .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+    .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+    .section-note { color: var(--muted); font-size: 0.84rem; line-height: 1.5; margin-bottom: 1rem; }
 
     .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
     .pick-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.15s, border-color 0.15s; }
@@ -132,6 +133,7 @@
     .shared-row .rank { color: var(--muted); font-size: 0.75rem; min-width: 1.8rem; }
     .shared-row .title { flex: 1; color: var(--text); }
     .shared-row .year { color: var(--muted); font-size: 0.8rem; }
+    .shared-row .tags { color: var(--muted); font-size: 0.76rem; }
     .shared-row a { font-size: 0.78rem; }
 
     .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; text-align: center; }
@@ -163,12 +165,12 @@
   <a class="crosslink" href="https://letterstats.ndblake.com" target="_blank" rel="noopener">← <strong>Letterstats</strong></a>
 </div>
 
-<!-- Upload Phase -->
 <div class="container" id="upload-phase">
   <div class="logo">Letterpicks</div>
-  <div class="tag" id="tag-line">Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd all enjoy most.</div>
+  <div class="tag" id="tag-line"></div>
 
   <div class="mode-tabs" id="mode-tabs">
+    <button class="mode-tab" data-mode="1">1 person</button>
     <button class="mode-tab active" data-mode="2">2 people</button>
     <button class="mode-tab" data-mode="3">3 people</button>
   </div>
@@ -180,18 +182,16 @@
     <small>On Letterboxd go to <strong>Settings → Data → Export Your Data</strong> — you'll get a <code>.zip</code> file. Drop one ZIP in each slot above.</small>
   </div>
 
-  <button class="btn" id="generate-btn" disabled>Find Our Picks</button>
+  <button class="btn" id="generate-btn" disabled>Generate Picks</button>
   <p class="err" id="upload-err"></p>
 </div>
 
-<!-- Progress Phase -->
 <div class="container" id="progress-phase">
   <div class="progress-title" id="progress-title">Working…</div>
   <div class="progress-label" id="progress-label"></div>
   <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-bar"></div></div>
 </div>
 
-<!-- Report Phase -->
 <div id="report-phase">
   <div class="report-container">
     <div class="rep-header">
@@ -202,20 +202,27 @@
     <div class="stat-grid" id="stat-grid"></div>
 
     <div class="section">
-      <h2>Top Picks for Both of You</h2>
+      <h2 id="primary-section-title">Top Picks</h2>
+      <div class="section-note" id="primary-section-note"></div>
       <div class="filters" id="filters"></div>
       <div id="picks-area"></div>
     </div>
 
+    <div class="section" id="group-discovery-section" style="display:none;">
+      <h2 id="group-discovery-title">More Group Picks</h2>
+      <div class="section-note" id="group-discovery-note"></div>
+      <div id="group-discovery-area"></div>
+    </div>
+
     <div class="section">
-      <h2>Full Shared Watchlist</h2>
+      <h2 id="library-section-title">Library</h2>
+      <div class="section-note" id="library-section-note"></div>
       <div id="shared-list-area"></div>
     </div>
   </div>
 </div>
 
 <script>
-// ─── Theme picker ─────────────────────────────────────────────────
 const THEME_KEY = 'lp_theme_v1';
 const savedTheme = localStorage.getItem(THEME_KEY) || '';
 if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
@@ -234,9 +241,22 @@ document.querySelectorAll('.palette-swatch').forEach(s => {
   });
 });
 
-// ─── Mode tabs + Drop zones ───────────────────────────────────────
 const SLOT_LABELS = ['User A', 'User B', 'User C'];
 const SLOT_PLACEHOLDERS = ['Name (e.g. Noah)', 'Name (e.g. Sam)', 'Name (e.g. Alex)'];
+const MODE_COPY = {
+  1: {
+    tag: "Drop in one Letterboxd export ZIP and we'll look at what you've loved before, what you still haven't watched, and what you'd probably like next.",
+    button: 'Find My Picks',
+  },
+  2: {
+    tag: "Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd both enjoy most.",
+    button: 'Find Our Picks',
+  },
+  3: {
+    tag: "Drop in three Letterboxd export ZIPs and we'll find what's in all your watchlists — then rank what you'd all enjoy most.",
+    button: 'Find Our Picks',
+  },
+};
 let MODE = 2;
 const files = [null, null, null];
 const names = ['', '', ''];
@@ -261,41 +281,50 @@ function buildUserGrid() {
     grid.appendChild(card);
   }
   grid.querySelectorAll('.drop-zone').forEach(z => {
-    const slot = parseInt(z.dataset.slot);
+    const slot = parseInt(z.dataset.slot, 10);
     const input = z.querySelector('input');
     const chosen = z.querySelector('.file-chosen');
     z.addEventListener('click', e => { if (e.target.tagName !== 'INPUT') input.click(); });
     z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('over'); });
     z.addEventListener('dragleave', () => z.classList.remove('over'));
     z.addEventListener('drop', e => {
-      e.preventDefault(); z.classList.remove('over');
+      e.preventDefault();
+      z.classList.remove('over');
       const f = e.dataTransfer.files[0];
-      if (f && f.name.endsWith('.zip')) { files[slot] = f; chosen.textContent = '✓ ' + f.name; checkReady(); }
+      if (f && f.name.endsWith('.zip')) {
+        files[slot] = f;
+        chosen.textContent = '✓ ' + f.name;
+        checkReady();
+      }
     });
     input.addEventListener('change', () => {
-      if (input.files[0]) { files[slot] = input.files[0]; chosen.textContent = '✓ ' + input.files[0].name; checkReady(); }
+      if (input.files[0]) {
+        files[slot] = input.files[0];
+        chosen.textContent = '✓ ' + input.files[0].name;
+        checkReady();
+      }
     });
   });
   grid.querySelectorAll('input[data-slot-name]').forEach(inp => {
-    inp.addEventListener('input', () => { names[parseInt(inp.dataset.slotName)] = inp.value; checkReady(); });
+    inp.addEventListener('input', () => {
+      names[parseInt(inp.dataset.slotName, 10)] = inp.value;
+      checkReady();
+    });
   });
-  document.getElementById('tag-line').textContent = MODE === 3
-    ? "Drop in three Letterboxd export ZIPs and we'll find what's in all your watchlists — then rank what you'd all enjoy most."
-    : "Drop in two Letterboxd export ZIPs and we'll find what's in both your watchlists — then rank what you'd both enjoy most.";
+  document.getElementById('tag-line').textContent = MODE_COPY[MODE].tag;
+  document.getElementById('generate-btn').textContent = MODE_COPY[MODE].button;
   checkReady();
 }
 
 document.querySelectorAll('.mode-tab').forEach(t => {
   t.addEventListener('click', () => {
-    MODE = parseInt(t.dataset.mode);
+    MODE = parseInt(t.dataset.mode, 10);
     document.querySelectorAll('.mode-tab').forEach(x => x.classList.toggle('active', x === t));
     buildUserGrid();
   });
 });
 buildUserGrid();
 
-// TMDB v4 Read Access Token (read-only, public site). Switch via /movie/...
-// uses Bearer auth instead of v3's api_key query param.
 const TMDB_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0OWVhMTczNmQ5NzRkNDkzNTA2MzhhZjk2MjQxMzhiZCIsIm5iZiI6MTc3NzMyMjU2NS41NzQwMDAxLCJzdWIiOiI2OWVmY2E0NWVmYjA0YjNlNzAyOTk5NjkiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.CBvA4k58mRoH2IE347CM-1IuvOm--wTp8L2_IPce3Vc';
 
 function checkReady() {
@@ -321,14 +350,12 @@ function reset() {
   document.getElementById('report-phase').style.display = 'none';
 }
 
-// ─── Progress ─────────────────────────────────────────────────────
 function showProgress(title, label, pct) {
   document.getElementById('progress-title').textContent = title;
   document.getElementById('progress-label').textContent = label || '';
   document.getElementById('progress-bar').style.width = (pct || 0) + '%';
 }
 
-// ─── Letterboxd ZIP parsing ───────────────────────────────────────
 function norm(k) { return k.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
 function firstVal(row, aliases) { for (const a of aliases) if (row[a]) return row[a]; return null; }
 function parseRating(raw) {
@@ -367,30 +394,29 @@ function normalizeRows(rows) {
     const row = {};
     for (const k in raw) row[norm(k)] = (raw[k] == null ? '' : String(raw[k])).trim();
     return {
-      title: firstVal(row, ['name','title','film','film_name','movie']) || '',
-      year: parseInt(firstVal(row, ['year','release_year'])) || null,
-      uri: firstVal(row, ['letterboxd_uri','letterboxd_url','uri','url']) || '',
-      rating: parseRating(firstVal(row, ['rating','your_rating','stars'])),
+      title: firstVal(row, ['name', 'title', 'film', 'film_name', 'movie']) || '',
+      year: parseInt(firstVal(row, ['year', 'release_year']), 10) || null,
+      uri: firstVal(row, ['letterboxd_uri', 'letterboxd_url', 'uri', 'url']) || '',
+      rating: parseRating(firstVal(row, ['rating', 'your_rating', 'stars'])),
+      watchedOn: firstVal(row, ['watched_date', 'date', 'watched_on']) || '',
     };
   }).filter(r => r.title);
 }
 
 function makeKey(r) {
-  if (r.uri) return r.uri.toLowerCase().replace(/\/$/, '');
-  return r.title.toLowerCase() + '|' + (r.year || '');
+  return (r.title || '').toLowerCase() + '|' + (r.year || '');
 }
 
-// ─── TMDB ─────────────────────────────────────────────────────────
 const TMDB = 'https://api.themoviedb.org/3';
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
-const TMDB_CACHE_KEY = 'lp_tmdb_cache_v4';
+const TMDB_CACHE_KEY = 'lp_tmdb_cache_v5';
 function loadTmdbCache() { try { return JSON.parse(localStorage.getItem(TMDB_CACHE_KEY) || '{}'); } catch { return {}; } }
 function saveTmdbCache(c) { try { localStorage.setItem(TMDB_CACHE_KEY, JSON.stringify(c)); } catch {} }
 
 async function tmdbGet(path, params) {
   const qs = Object.keys(params).length ? '?' + new URLSearchParams(params) : '';
   const res = await fetch(TMDB + path + qs, {
-    headers: { 'Authorization': 'Bearer ' + TMDB_TOKEN, 'Accept': 'application/json' },
+    headers: { Authorization: 'Bearer ' + TMDB_TOKEN, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error('TMDB ' + res.status + ' on ' + path);
   return res.json();
@@ -398,7 +424,7 @@ async function tmdbGet(path, params) {
 
 async function tmdbSearch(title, year, cache) {
   const ck = 'search:' + title.toLowerCase() + '|' + (year || '');
-  if (cache[ck]) return cache[ck];
+  if (Object.prototype.hasOwnProperty.call(cache, ck)) return cache[ck];
   const params = { query: title };
   if (year) params.year = year;
   const data = await tmdbGet('/search/movie', params);
@@ -422,13 +448,15 @@ async function tmdbDetails(id, cache) {
     certification: cert,
     genres: (data.genres || []).map(g => g.name),
     similar: ((data.similar && data.similar.results) || []).map(m => ({
-      id: m.id, title: m.title, year: (m.release_date || '').slice(0, 4),
+      id: m.id,
+      title: m.title,
+      year: parseInt((m.release_date || '').slice(0, 4), 10) || null,
+      poster: m.poster_path || null,
     })),
   };
   return cache[ck];
 }
 
-// Throttle: ~30 req/sec to be safely under TMDB's 50/sec limit.
 let lastReq = 0;
 async function throttled(fn) {
   const wait = Math.max(0, 33 - (Date.now() - lastReq));
@@ -437,25 +465,25 @@ async function throttled(fn) {
   return fn();
 }
 
-// ─── Algorithm ────────────────────────────────────────────────────
-// For each shared-watchlist candidate:
-//   1. Look up TMDB id
-//   2. Fetch /similar (TMDB-curated list of ~20 similar movies)
-//   3. For each user, find which of those similar movies the user has rated
-//      (matched by title+year); average those ratings -> predicted score
-//   4. Combined = harmonic mean of two predicted scores; fall back to user
-//      overall avg rating if no similarity overlap exists.
-// Why harmonic mean: penalizes a candidate one user clearly disliked
-// while still rewarding mutual upside.
-
 function buildRatedIndex(rows) {
   const idx = new Map();
   for (const r of rows) {
     if (r.rating == null) continue;
-    const k = (r.title || '').toLowerCase() + '|' + (r.year || '');
-    idx.set(k, r.rating);
+    idx.set((r.title || '').toLowerCase() + '|' + (r.year || ''), r.rating);
   }
   return idx;
+}
+
+function buildWatchedSet(user) {
+  const set = new Set();
+  [...user.ratings, ...user.diary].forEach(r => set.add(makeKey(r)));
+  return set;
+}
+
+function buildWatchlistMap(rows) {
+  const map = new Map();
+  rows.forEach(r => map.set(makeKey(r), r));
+  return map;
 }
 
 function userAvg(ratings) {
@@ -463,11 +491,245 @@ function userAvg(ratings) {
   return ratings.reduce((a, b) => a + b, 0) / ratings.length;
 }
 
+function fallbackAvg(avg) {
+  return avg == null ? 3.25 : avg;
+}
+
 function harmonicN(vals) {
   if (!vals.length || vals.some(v => v == null)) return null;
   if (vals.some(v => v <= 0)) return 0;
   const sumRecip = vals.reduce((s, v) => s + 1 / v, 0);
   return vals.length / sumRecip;
+}
+
+function mean(vals) {
+  if (!vals.length) return 0;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function buildSharedWatchlist(users) {
+  if (!users.length) return [];
+  let sharedKeys = new Map(users[0].watchlist.map(r => [makeKey(r), r]));
+  for (let i = 1; i < users.length; i++) {
+    const next = new Map();
+    const wMap = new Map(users[i].watchlist.map(r => [makeKey(r), r]));
+    for (const [k, r] of sharedKeys) if (wMap.has(k)) next.set(k, r);
+    sharedKeys = next;
+  }
+  return [...sharedKeys.entries()].map(([key, r]) => ({
+    key,
+    title: r.title,
+    year: r.year,
+    uri: r.uri,
+    sourceType: 'shared-watchlist',
+    supportCount: users.length,
+    watchOwners: users.map((_, idx) => idx),
+  }));
+}
+
+function buildUnionWatchlistCandidates(users, watchedSets, excludeKeys, mode) {
+  const union = new Map();
+  users.forEach((user, idx) => {
+    user.watchlist.forEach(r => {
+      const key = makeKey(r);
+      if (!union.has(key)) {
+        union.set(key, {
+          key,
+          title: r.title,
+          year: r.year,
+          uri: r.uri,
+          sourceType: 'watchlist-union',
+          supportCount: 0,
+          watchOwners: [],
+        });
+      }
+      const entry = union.get(key);
+      if (!entry.watchOwners.includes(idx)) entry.watchOwners.push(idx);
+      entry.supportCount = entry.watchOwners.length;
+      if (!entry.uri && r.uri) entry.uri = r.uri;
+    });
+  });
+
+  const candidates = [...union.values()].filter(entry => {
+    if (excludeKeys.has(entry.key)) return false;
+    if (mode > 1 && entry.supportCount === mode) return false;
+    for (const watched of watchedSets) if (watched.has(entry.key)) return false;
+    return true;
+  });
+
+  candidates.sort((a, b) => {
+    if (b.supportCount !== a.supportCount) return b.supportCount - a.supportCount;
+    return (a.title || '').localeCompare(b.title || '');
+  });
+  return candidates;
+}
+
+function pickSeedMovies(user, avg) {
+  const rated = user.ratings.filter(r => r.rating != null);
+  rated.sort((a, b) => (b.rating - a.rating) || ((a.title || '').localeCompare(b.title || '')));
+  const threshold = Math.max(4, fallbackAvg(avg) + 0.35);
+  const seeds = rated.filter(r => r.rating >= threshold).slice(0, 6);
+  return seeds.length ? seeds : rated.slice(0, 4);
+}
+
+function mergeSimilarCandidate(map, movie, ownerIndex, ownerName, sourceSeed) {
+  const key = 'tmdb:' + movie.id;
+  if (!map.has(key)) {
+    map.set(key, {
+      key,
+      tmdbId: movie.id,
+      title: movie.title,
+      year: movie.year,
+      poster: movie.poster || null,
+      uri: '',
+      sourceType: 'tmdb-similar',
+      supportCount: 0,
+      supportUsers: new Set(),
+      similarSources: [],
+      watchOwners: [],
+    });
+  }
+  const entry = map.get(key);
+  if (!entry.supportUsers.has(ownerIndex)) {
+    entry.supportUsers.add(ownerIndex);
+    entry.supportCount += 1;
+  }
+  entry.similarSources.push({ ownerIndex, ownerName, title: sourceSeed.title, year: sourceSeed.year });
+}
+
+async function buildSimilarFallbackCandidates(users, userModels, cache, mode) {
+  const map = new Map();
+  const allWatched = new Set();
+  users.forEach(user => user.watchedSet.forEach(k => allWatched.add(k)));
+  for (let i = 0; i < users.length; i++) {
+    const seeds = pickSeedMovies(users[i], userModels[i].avg);
+    for (const seed of seeds) {
+      let hit = null;
+      try {
+        hit = await throttled(() => tmdbSearch(seed.title, seed.year, cache));
+      } catch (e) {
+        console.warn('seed search failed', seed.title, e);
+      }
+      if (!hit) continue;
+      let details = null;
+      try {
+        details = await throttled(() => tmdbDetails(hit.id, cache));
+      } catch (e) {
+        console.warn('seed details failed', seed.title, e);
+      }
+      if (!details) continue;
+      for (const similar of details.similar.slice(0, 10)) {
+        const syntheticKey = (similar.title || '').toLowerCase() + '|' + (similar.year || '');
+        if (allWatched.has(syntheticKey)) continue;
+        mergeSimilarCandidate(map, similar, i, users[i].name, seed);
+      }
+    }
+  }
+  const candidates = [...map.values()].filter(entry => entry.supportCount >= Math.min(mode, 1));
+  candidates.sort((a, b) => {
+    if (b.supportCount !== a.supportCount) return b.supportCount - a.supportCount;
+    return (a.title || '').localeCompare(b.title || '');
+  });
+  return candidates.slice(0, mode === 1 ? 36 : 28).map(entry => ({
+    ...entry,
+    supportUsers: undefined,
+  }));
+}
+
+async function enrichCandidates(candidates, cache, progressBase, progressSpan, titlePrefix) {
+  const enriched = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const label = candidate.title + (candidate.year ? ' (' + candidate.year + ')' : '');
+    showProgress(titlePrefix, label, progressBase + Math.floor(progressSpan * (i / Math.max(candidates.length, 1))));
+    let hit = null;
+    if (candidate.tmdbId) {
+      hit = { id: candidate.tmdbId, poster: candidate.poster || null };
+    } else {
+      try {
+        hit = await throttled(() => tmdbSearch(candidate.title, candidate.year, cache));
+      } catch (e) {
+        console.warn('candidate search failed', candidate.title, e);
+      }
+    }
+    if (!hit) {
+      enriched.push({ ...candidate, tmdbId: null, poster: null, similar: [], runtime: null, certification: null, genres: [] });
+      continue;
+    }
+    let details = { runtime: null, certification: null, genres: [], similar: [] };
+    try {
+      details = await throttled(() => tmdbDetails(hit.id, cache));
+    } catch (e) {
+      console.warn('candidate details failed', candidate.title, e);
+    }
+    enriched.push({
+      ...candidate,
+      tmdbId: hit.id,
+      poster: candidate.poster || hit.poster || null,
+      runtime: details.runtime,
+      certification: details.certification,
+      genres: details.genres,
+      similar: details.similar,
+    });
+  }
+  return enriched;
+}
+
+function scoreCandidate(candidate, users, userModels, mode) {
+  const perUser = users.map((user, idx) => predictForUser(candidate, user, userModels[idx]));
+  const scores = perUser.map(p => p.score);
+  const harmonic = harmonicN(scores) || 0;
+  const spread = scores.length > 1 ? (Math.max(...scores) - Math.min(...scores)) : 0;
+  const agreementFactor = Math.max(0.6, 1 - spread / 6);
+  const confidence = mean(perUser.map(p => p.confidence));
+  const supportBoost = candidate.sourceType === 'watchlist-union' ? 0.15 * (candidate.supportCount / Math.max(mode, 1)) : 0;
+  const finalScore = harmonic * agreementFactor + confidence * 0.12 + supportBoost;
+  return {
+    ...candidate,
+    preds: perUser.map(p => p.score),
+    matched: perUser.map(p => p.matched),
+    predictionMeta: perUser,
+    harmonic,
+    agreementFactor,
+    confidence,
+    finalScore,
+  };
+}
+
+function predictForUser(candidate, user, model) {
+  const matches = [];
+  for (const similar of candidate.similar || []) {
+    const key = (similar.title || '').toLowerCase() + '|' + (similar.year || '');
+    const rating = model.ratedIdx.get(key);
+    if (rating != null) matches.push({ title: similar.title, year: similar.year, rating });
+  }
+  matches.sort((a, b) => b.rating - a.rating);
+  const prior = model.avg;
+  if (!matches.length) {
+    return { score: prior, matched: [], confidence: 0, basis: 'average' };
+  }
+  const topMatches = matches.slice(0, 6);
+  const matchAvg = userAvg(topMatches.map(m => m.rating)) || prior;
+  const score = (matchAvg * topMatches.length + prior * 2) / (topMatches.length + 2);
+  return {
+    score,
+    matched: topMatches,
+    confidence: Math.min(1, topMatches.length / 4),
+    basis: 'similar',
+  };
+}
+
+function dedupeScored(scored, limit) {
+  const seen = new Set();
+  const out = [];
+  for (const item of scored) {
+    const key = item.tmdbId ? 'tmdb:' + item.tmdbId : item.key;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
 }
 
 async function run() {
@@ -486,68 +748,60 @@ async function run() {
     watchlist: normalizeRows(raw.watchlist),
     diary: normalizeRows(raw.diary),
   }));
+
   users.forEach(u => {
-    if (!u.watchlist.length && !u.diary.length) throw new Error(u.name + "'s ZIP has no watchlist.csv");
+    if (!u.ratings.length && !u.watchlist.length && !u.diary.length) {
+      throw new Error(u.name + "'s ZIP did not contain ratings, diary, or watchlist data.");
+    }
+    u.watchlistMap = buildWatchlistMap(u.watchlist);
+    u.watchedSet = buildWatchedSet(u);
   });
 
-  const ratedIdxs = users.map(u => buildRatedIndex(u.ratings));
-  const avgs = ratedIdxs.map(idx => userAvg([...idx.values()]));
+  const userModels = users.map(user => {
+    const ratedIdx = buildRatedIndex(user.ratings);
+    return {
+      ratedIdx,
+      avg: fallbackAvg(userAvg([...ratedIdx.values()])),
+    };
+  });
 
-  // Intersect watchlists across all users
-  let sharedKeys = new Map(users[0].watchlist.map(r => [makeKey(r), r]));
-  for (let i = 1; i < users.length; i++) {
-    const next = new Map();
-    const wMap = new Map(users[i].watchlist.map(r => [makeKey(r), r]));
-    for (const [k, r] of sharedKeys) if (wMap.has(k)) next.set(k, r);
-    sharedKeys = next;
-  }
-  const shared = [...sharedKeys.entries()].map(([k, r]) => ({ title: r.title, year: r.year, uri: r.uri, key: k }));
+  const sharedCandidates = MODE > 1 ? buildSharedWatchlist(users) : [];
+  const sharedKeys = new Set(sharedCandidates.map(c => c.key));
+  const unionCandidates = buildUnionWatchlistCandidates(users, users.map(u => u.watchedSet), sharedKeys, MODE);
+  const shortlistUnion = unionCandidates.slice(0, MODE === 1 ? 80 : 90);
 
-  showProgress('Found ' + shared.length + ' shared watchlist movies', 'looking up TMDB metadata…', 15);
-
-  if (!shared.length) {
-    renderReport({ users, shared: [], picks: [], avgs });
-    return;
-  }
-
-  // TMDB: search each candidate, then fetch /similar
+  showProgress('Building candidate pool…', 'finding watchlist and similar-movie candidates', 12);
   const cache = loadTmdbCache();
-  const enriched = [];
-  for (let i = 0; i < shared.length; i++) {
-    const m = shared[i];
-    showProgress('Looking up ' + (i + 1) + ' / ' + shared.length, m.title + (m.year ? ' (' + m.year + ')' : ''), 15 + Math.floor(70 * i / shared.length));
-    let hit = null;
-    try { hit = await throttled(() => tmdbSearch(m.title, m.year, cache)); } catch (e) { console.warn('search failed', m.title, e); }
-    if (!hit) { enriched.push({ ...m, tmdbId: null, poster: null, similar: [], runtime: null, certification: null, genres: [] }); continue; }
-    let details = { runtime: null, certification: null, genres: [], similar: [] };
-    try { details = await throttled(() => tmdbDetails(hit.id, cache)); } catch (e) { console.warn('details failed', m.title, e); }
-    enriched.push({ ...m, tmdbId: hit.id, poster: hit.poster, similar: details.similar, runtime: details.runtime, certification: details.certification, genres: details.genres });
-  }
+  const similarFallback = await buildSimilarFallbackCandidates(users, userModels, cache, MODE);
+
+  const existingKeys = new Set(shortlistUnion.map(c => c.key));
+  const fallbackShortlist = similarFallback.filter(c => {
+    const byName = (c.title || '').toLowerCase() + '|' + (c.year || '');
+    if (existingKeys.has(c.key) || existingKeys.has(byName) || sharedKeys.has(byName)) return false;
+    for (const user of users) if (user.watchedSet.has(byName)) return false;
+    return true;
+  });
+
+  const primaryCandidates = MODE === 1 ? [...shortlistUnion, ...fallbackShortlist].slice(0, 90) : sharedCandidates;
+  const discoveryCandidates = MODE === 1 ? [] : [...shortlistUnion, ...fallbackShortlist].slice(0, 80);
+
+  const totalToEnrich = primaryCandidates.length + discoveryCandidates.length;
+  showProgress('Looking up movie metadata…', totalToEnrich + ' candidates', 18);
+
+  const enrichedPrimary = await enrichCandidates(primaryCandidates, cache, 18, totalToEnrich ? 44 * (primaryCandidates.length / totalToEnrich) : 0, MODE === 1 ? 'Scoring personal picks…' : 'Scoring shared picks…');
+  const enrichedDiscovery = await enrichCandidates(discoveryCandidates, cache, 62, totalToEnrich ? 28 * (discoveryCandidates.length / totalToEnrich) : 0, 'Scoring more group picks…');
   saveTmdbCache(cache);
 
-  showProgress('Scoring picks…', 'combining ratings', 90);
+  showProgress('Scoring picks…', 'combining affinity and agreement', 92);
 
-  // Score each candidate across N users
-  const picks = enriched.map(m => {
-    const matched = users.map(() => []);
-    for (const s of m.similar) {
-      const k = (s.title || '').toLowerCase() + '|' + (s.year || '');
-      for (let i = 0; i < users.length; i++) {
-        const r = ratedIdxs[i].get(k);
-        if (r != null) matched[i].push({ title: s.title, year: s.year, rating: r });
-      }
-    }
-    const preds = matched.map((arr, i) => arr.length ? userAvg(arr.map(x => x.rating)) : avgs[i]);
-    const combined = harmonicN(preds);
-    return { ...m, preds, matched, combined };
-  }).sort((x, y) => (y.combined ?? -1) - (x.combined ?? -1));
+  const scoredPrimary = dedupeScored(enrichedPrimary.map(c => scoreCandidate(c, users, userModels, MODE)).sort((a, b) => b.finalScore - a.finalScore), MODE === 1 ? 24 : 48);
+  const scoredDiscovery = dedupeScored(enrichedDiscovery.map(c => scoreCandidate(c, users, userModels, MODE)).sort((a, b) => b.finalScore - a.finalScore), 24);
 
   showProgress('Done', '', 100);
-  await new Promise(r => setTimeout(r, 200));
-  renderReport({ users, shared: enriched, picks, avgs });
+  await new Promise(r => setTimeout(r, 180));
+  renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery });
 }
 
-// ─── Render ───────────────────────────────────────────────────────
 function fmtScore(x) { return x == null ? '—' : x.toFixed(2); }
 function fmtRuntime(min) {
   if (!min) return '';
@@ -560,36 +814,97 @@ function lbUrl(uri, title, year) {
   return 'https://letterboxd.com/film/' + slug + (year ? '-' + year : '') + '/';
 }
 
-function renderReport({ users, shared, picks, avgs }) {
+function primarySectionTitle(mode) {
+  if (mode === 1) return "Movies You'd Probably Like";
+  if (mode === 2) return 'Top Picks for Both of You';
+  return "Top Picks for All of You";
+}
+
+function primarySectionNote(mode) {
+  if (mode === 1) return "Ranked from movies on your watchlist plus a few unseen TMDB-similar candidates. Your predicted score comes from similar movies you've rated highly before, with your overall average as the fallback.";
+  return 'These are the movies already sitting in every uploaded watchlist. Each title gets a per-person prediction from similarly rated films, then a group score that rewards consensus and punishes big disagreement.';
+}
+
+function groupSectionNote(mode) {
+  if (mode === 2) return "These are movies that aren't in both watchlists already. We prefer unseen titles from your combined watchlists first, then add a few TMDB-similar fallbacks if the watchlists are thin.";
+  return "These are movies that aren't already on all three watchlists. The ranking still favors movies all three of you are predicted to like, with a small bonus when someone already saved it.";
+}
+
+function renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery }) {
   document.getElementById('progress-phase').style.display = 'none';
   document.getElementById('report-phase').style.display = 'block';
   document.getElementById('report-meta').textContent = users.map(u => u.name).join(' & ') + ' • ' + new Date().toLocaleDateString();
 
-  const stats = [{ val: shared.length, label: 'Shared Watchlist' }];
-  users.forEach((u, i) => {
-    stats.push({ val: u.ratings.length, label: u.name + ' Rated' });
-    stats.push({ val: fmtScore(avgs[i]), label: u.name + ' Avg ★' });
-  });
+  const stats = [];
+  if (MODE === 1) {
+    stats.push({ val: users[0].watchlist.length, label: 'Watchlist Movies' });
+    stats.push({ val: users[0].ratings.length, label: 'Rated Movies' });
+    stats.push({ val: fmtScore(userModels[0].avg), label: 'Average Rating' });
+    stats.push({ val: scoredPrimary.length, label: 'Recommended Picks' });
+  } else {
+    stats.push({ val: sharedCandidates.length, label: 'Shared Watchlist' });
+    stats.push({ val: unionCandidates.length, label: 'Not-In-Common Pool' });
+    users.forEach((u, i) => {
+      stats.push({ val: u.ratings.length, label: u.name + ' Rated' });
+      stats.push({ val: fmtScore(userModels[i].avg), label: u.name + ' Avg ★' });
+    });
+  }
   document.getElementById('stat-grid').innerHTML = stats.map(s =>
     `<div class="stat-card"><div class="val">${s.val}</div><div class="label">${escapeHtml(s.label)}</div></div>`
   ).join('');
 
-  renderPicksWithFilters(picks, users.map(u => u.name));
+  document.getElementById('primary-section-title').textContent = primarySectionTitle(MODE);
+  document.getElementById('primary-section-note').textContent = primarySectionNote(MODE);
+  renderPicksWithFilters(scoredPrimary, users.map(u => u.name));
 
-  // Full shared list
-  const sharedArea = document.getElementById('shared-list-area');
-  if (!shared.length) {
-    sharedArea.innerHTML = '<div class="empty">No shared watchlist movies.</div>';
+  const groupSection = document.getElementById('group-discovery-section');
+  if (MODE === 1) {
+    groupSection.style.display = 'none';
   } else {
-    const sorted = [...shared].sort((x, y) => (x.title || '').localeCompare(y.title || ''));
-    sharedArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
-      `<div class="shared-row">
-        <span class="rank">${i + 1}</span>
-        <span class="title">${escapeHtml(m.title)}</span>
-        <span class="year">${m.year || ''}</span>
-        <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
-      </div>`
-    ).join('') + '</div>';
+    groupSection.style.display = '';
+    document.getElementById('group-discovery-title').textContent = "Movies Not In Common But You'd All Probably Like";
+    document.getElementById('group-discovery-note').textContent = groupSectionNote(MODE);
+    drawPickList('group-discovery-area', scoredDiscovery, users.map(u => u.name), {
+      empty: 'Not enough unseen group candidates surfaced from your watchlists or similar films.',
+      max: 18,
+    });
+  }
+
+  const listArea = document.getElementById('shared-list-area');
+  const listTitle = document.getElementById('library-section-title');
+  const listNote = document.getElementById('library-section-note');
+  if (MODE === 1) {
+    listTitle.textContent = 'Your Watchlist';
+    listNote.textContent = 'Everything currently in the uploaded watchlist ZIP.';
+    if (!users[0].watchlist.length) {
+      listArea.innerHTML = '<div class="empty">No watchlist entries were found in this export.</div>';
+    } else {
+      const sorted = [...users[0].watchlist].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      listArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
+        `<div class="shared-row">
+          <span class="rank">${i + 1}</span>
+          <span class="title">${escapeHtml(m.title)}</span>
+          <span class="year">${m.year || ''}</span>
+          <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
+        </div>`
+      ).join('') + '</div>';
+    }
+  } else {
+    listTitle.textContent = 'Full Shared Watchlist';
+    listNote.textContent = 'The raw intersection across every uploaded watchlist, before ranking.';
+    if (!sharedCandidates.length) {
+      listArea.innerHTML = '<div class="empty">No shared watchlist movies.</div>';
+    } else {
+      const sorted = [...sharedCandidates].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      listArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
+        `<div class="shared-row">
+          <span class="rank">${i + 1}</span>
+          <span class="title">${escapeHtml(m.title)}</span>
+          <span class="year">${m.year || ''}</span>
+          <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
+        </div>`
+      ).join('') + '</div>';
+    }
   }
 }
 
@@ -602,7 +917,7 @@ function renderPicksWithFilters(picks, userNames) {
   const allDecades = new Set();
   picks.forEach(p => {
     (p.genres || []).forEach(g => allGenres.add(g));
-    if (p.year) allDecades.add(Math.floor(parseInt(p.year) / 10) * 10);
+    if (p.year) allDecades.add(Math.floor(parseInt(p.year, 10) / 10) * 10);
   });
   const genreList = [...allGenres].sort();
   const decadeList = [...allDecades].sort((a, b) => b - a);
@@ -612,7 +927,7 @@ function renderPicksWithFilters(picks, userNames) {
     <div class="filter-group">
       <label>Runtime</label>
       <select data-filter="runtime">
-        ${['any','90','105','120','150'].map(v => opt(v === 'any' ? 'Any' : '≤ ' + fmtRuntime(parseInt(v)), v, FILTER_STATE.runtime)).join('')}
+        ${['any', '90', '105', '120', '150'].map(v => opt(v === 'any' ? 'Any' : '≤ ' + fmtRuntime(parseInt(v, 10)), v, FILTER_STATE.runtime)).join('')}
       </select>
     </div>
     <div class="filter-group">
@@ -642,37 +957,37 @@ function renderPicksWithFilters(picks, userNames) {
   filters.querySelectorAll('select').forEach(sel => {
     sel.addEventListener('change', () => {
       FILTER_STATE[sel.dataset.filter] = sel.value;
-      drawPicks(picks, userNames);
+      drawFilteredPrimary(picks, userNames);
     });
   });
   document.getElementById('filter-clear').addEventListener('click', () => {
     FILTER_STATE.runtime = FILTER_STATE.cert = FILTER_STATE.genre = FILTER_STATE.decade = 'any';
     renderPicksWithFilters(picks, userNames);
   });
-  drawPicks(picks, userNames);
+  drawFilteredPrimary(picks, userNames);
 }
 
 function applyFilters(picks) {
   return picks.filter(m => {
     if (FILTER_STATE.runtime !== 'any') {
-      const max = parseInt(FILTER_STATE.runtime);
+      const max = parseInt(FILTER_STATE.runtime, 10);
       if (!m.runtime || m.runtime > max) return false;
     }
     if (FILTER_STATE.cert !== 'any' && m.certification !== FILTER_STATE.cert) return false;
     if (FILTER_STATE.genre !== 'any' && !(m.genres || []).includes(FILTER_STATE.genre)) return false;
     if (FILTER_STATE.decade !== 'any') {
-      const d = Math.floor(parseInt(m.year) / 10) * 10;
+      const d = Math.floor(parseInt(m.year, 10) / 10) * 10;
       if (String(d) !== FILTER_STATE.decade) return false;
     }
     return true;
   });
 }
 
-function drawPicks(picks, userNames) {
+function drawFilteredPrimary(picks, userNames) {
   const picksArea = document.getElementById('picks-area');
   const countEl = document.getElementById('filter-count');
   if (!picks.length) {
-    picksArea.innerHTML = '<div class="empty">No shared watchlist movies — nothing to pick from. 😬</div>';
+    picksArea.innerHTML = '<div class="empty">No candidates surfaced strongly enough to recommend yet.</div>';
     if (countEl) countEl.textContent = '';
     return;
   }
@@ -682,8 +997,20 @@ function drawPicks(picks, userNames) {
     picksArea.innerHTML = '<div class="empty">No picks match your filters.</div>';
     return;
   }
-  const top = filtered.slice(0, 24);
-  picksArea.innerHTML = '<div class="pick-grid">' + top.map((m, i) => {
+  drawPickCards(picksArea, filtered.slice(0, 24), userNames);
+}
+
+function drawPickList(targetId, picks, userNames, opts) {
+  const area = document.getElementById(targetId);
+  if (!picks.length) {
+    area.innerHTML = `<div class="empty">${escapeHtml(opts.empty)}</div>`;
+    return;
+  }
+  drawPickCards(area, picks.slice(0, opts.max || 18), userNames);
+}
+
+function drawPickCards(targetEl, picks, userNames) {
+  targetEl.innerHTML = '<div class="pick-grid">' + picks.map((m, i) => {
     const reason = buildReason(m, userNames);
     const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
     const scorePills = userNames.map((n, j) =>
@@ -707,15 +1034,28 @@ function drawPicks(picks, userNames) {
 }
 
 function buildReason(m, userNames) {
-  const anyMatched = m.matched.some(arr => arr.length);
-  if (!anyMatched) return 'No overlap with your past ratings — using your overall averages.';
-  const parts = [];
-  m.matched.forEach((arr, i) => {
-    if (!arr.length) return;
-    const top = [...arr].sort((x, y) => y.rating - x.rating)[0];
-    parts.push(userNames[i] + ' liked "' + top.title + '" ' + fmtScore(top.rating) + '★');
+  const evidence = [];
+  m.predictionMeta.forEach((meta, i) => {
+    if (!meta.matched.length) {
+      evidence.push(userNames[i] + ' had no direct similar-title overlap, so this uses their average rating.');
+      return;
+    }
+    const top = meta.matched[0];
+    evidence.push(userNames[i] + ' rated "' + top.title + '" ' + fmtScore(top.rating) + '★.');
   });
-  return parts.join(' • ');
+  if (m.sourceType === 'watchlist-union' && m.watchOwners && m.watchOwners.length) {
+    const owners = m.watchOwners.map(i => userNames[i]).join(', ');
+    evidence.unshift(m.watchOwners.length === 1
+      ? 'Already saved on ' + owners + "'s watchlist."
+      : "Already saved across " + owners + "' watchlists.");
+  } else if (m.sourceType === 'tmdb-similar' && m.similarSources && m.similarSources.length) {
+    const seed = m.similarSources[0];
+    evidence.unshift('Surfaced from TMDB similar movies, starting with ' + seed.ownerName + "'s love of \"" + seed.title + '\".');
+  } else if (m.sourceType === 'shared-watchlist') {
+    evidence.unshift('In every uploaded watchlist already.');
+  }
+  const suffix = userNames.length > 1 ? ' Group score rewards high scores for everyone and penalizes disagreement.' : ' Personal score shrinks similar-movie evidence toward your overall average when data is sparse.';
+  return evidence.slice(0, 3).join(' ') + suffix;
 }
 
 function escapeHtml(s) {

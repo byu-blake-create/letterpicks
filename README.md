@@ -1,49 +1,73 @@
 # Letterpicks
 
-Sister site to [Letterstats](https://letterstats.ndblake.com). Drop in two Letterboxd export ZIPs and Letterpicks finds the films in **both** your watchlists, then ranks which ones you'd both enjoy most.
+Sister site to [Letterstats](https://letterstats.ndblake.com). Drop in one, two, or three Letterboxd export ZIPs and Letterpicks recommends what you should watch next.
 
 Live: https://letterpicks.ndblake.com
 
+## Modes
+
+- `1 person`: recommends movies you'd probably like based on your highest-rated films, your watchlist, and a small set of unseen TMDB-similar candidates.
+- `2 people`: keeps the existing shared-watchlist ranking, and also suggests movies not already in both watchlists that you're both predicted to like.
+- `3 people`: same as 2-person mode, but optimized for three-way consensus.
+
 ## How it works
 
-1. You and a partner each export your Letterboxd data: `Settings → Data → Export Your Data`. You'll each get a `.zip`.
-2. Drop both ZIPs into Letterpicks (one per slot).
-3. Letterpicks parses both ZIPs **entirely in your browser** — nothing is uploaded. TMDB lookups happen client-side using a baked-in read-only token.
+1. Export your Letterboxd data from `Settings → Data → Export Your Data`.
+2. Drop one `.zip` into each active slot.
+3. Letterpicks parses everything in the browser. TMDB lookups also happen client-side using the baked-in read-only token.
 
-For each film in your shared watchlist:
+### Shared-watchlist picks
 
-- It looks up the film on TMDB.
-- It pulls TMDB's curated list of "similar" films (`/movie/{id}/similar`).
-- For each of you, it checks which of those similar films you've already rated, then averages those ratings into a predicted score for the candidate.
-- The combined ranking score is the **harmonic mean** of your two predicted scores — that way a candidate one of you would clearly dislike doesn't rank high, even if the other person would love it.
-- If there's no rating overlap, it falls back to each user's overall average.
+For movies already in every uploaded watchlist:
+
+- Letterpicks looks up the movie on TMDB.
+- It fetches TMDB's curated `similar` list for that title.
+- For each user, it finds which similar movies they have rated and turns that into a predicted score.
+- Each prediction is shrunk toward that user's overall average rating so sparse overlap does not swing too hard.
+- The group rank uses the harmonic mean of the per-user predictions, then applies an agreement penalty when one person's predicted score is much lower than the others.
+
+### Not-in-common group picks
+
+For 2-person and 3-person mode, Letterpicks also builds a second pool:
+
+- First choice: unseen movies from the union of all uploaded watchlists, especially titles saved by one person but not the others.
+- Fallback: a small number of unseen TMDB-similar titles derived from each user's highest-rated films.
+- Movies already watched or rated by any uploaded user are filtered out when that data is available.
+- Ranking uses the same per-user prediction logic, plus a small bonus for union-watchlist movies so the output stays grounded in what someone already saved.
+
+### Single-user picks
+
+For 1-person mode:
+
+- Letterpicks scores unseen movies from your watchlist first.
+- If your watchlist is thin, it adds unseen TMDB-similar titles based on movies you rated highly.
+- Each candidate gets a predicted score from similar movies you've rated, with your overall average as the fallback when overlap is weak.
 
 ## Stack
 
-- Static HTML + vanilla JS, single file (`index.html`).
-- Browser libs from CDN: `jszip` (ZIP parsing), `papaparse` (CSV parsing).
-- TMDB API for movie metadata + similarity.
-- No backend, no database, no persistence beyond your browser's localStorage (just the API key + a TMDB response cache so re-runs are fast).
+- Static HTML + vanilla JS, single file: `index.html`
+- Browser libs from CDN: `jszip` for ZIP parsing, `papaparse` for CSV parsing
+- TMDB API for movie metadata and similarity
+- No backend, no database, no persistence beyond browser localStorage for theme + TMDB cache
 
 ## Local dev
 
-It's a single HTML file. Open it in a browser:
-
 ```bash
+cd /home/ubuntu/projects/letterpicks
 python3 -m http.server 8000
-# then visit http://localhost:8000
+# visit http://localhost:8000
 ```
 
 ## Deploy
 
-Deploy as a static site any way you like. The same pattern as letterstats works — point a Cloudflare-tunnel-routed domain at a static host (Coolify static service, GitHub Pages, Cloudflare Pages, etc.) serving `index.html`.
+Deploy as a static site. The same pattern as Letterstats works fine: any static host serving `index.html` behind your preferred domain routing.
 
 ## TMDB API
 
-Letterpicks ships with a baked-in TMDB v4 Read Access Token (read-only). TMDB's free tier has no daily quota — only a 50 req/sec rate limit, which a typical Letterpicks session never approaches (~10-100 calls per pair). To rotate, replace `TMDB_TOKEN` in `index.html`.
+Letterpicks ships with a baked-in TMDB v4 read-only token. Typical sessions stay comfortably below TMDB's free-tier rate limits because responses are cached in localStorage and requests are throttled client-side.
 
 ## Privacy
 
 - No server, no database. Everything happens in the browser tab.
-- Refresh the page and your uploaded ZIPs and computed picks are gone.
-- The TMDB response cache lives in localStorage; clear site data to wipe it.
+- Refresh the page and uploaded ZIPs plus computed picks are gone.
+- TMDB response cache lives in localStorage. Clear site data to wipe it.

@@ -214,6 +214,12 @@
       <div id="group-discovery-area"></div>
     </div>
 
+    <div class="section" id="favorites-section" style="display:none;">
+      <h2 id="favorites-title">Favorites To Borrow</h2>
+      <div class="section-note" id="favorites-note"></div>
+      <div id="favorites-area"></div>
+    </div>
+
     <div class="section">
       <h2 id="library-section-title">Library</h2>
       <div class="section-note" id="library-section-note"></div>
@@ -495,6 +501,11 @@ function fallbackAvg(avg) {
   return avg == null ? 3.25 : avg;
 }
 
+function isUnseenByAll(key, watchedSets) {
+  for (const watched of watchedSets) if (watched.has(key)) return false;
+  return true;
+}
+
 function harmonicN(vals) {
   if (!vals.length || vals.some(v => v == null)) return null;
   if (vals.some(v => v <= 0)) return 0;
@@ -553,8 +564,7 @@ function buildUnionWatchlistCandidates(users, watchedSets, excludeKeys, mode) {
   const candidates = [...union.values()].filter(entry => {
     if (excludeKeys.has(entry.key)) return false;
     if (mode > 1 && entry.supportCount === mode) return false;
-    for (const watched of watchedSets) if (watched.has(entry.key)) return false;
-    return true;
+    return isUnseenByAll(entry.key, watchedSets);
   });
 
   candidates.sort((a, b) => {
@@ -636,6 +646,40 @@ async function buildSimilarFallbackCandidates(users, userModels, cache, mode) {
   }));
 }
 
+function buildFavoriteHandoffCandidates(users, userModels) {
+  if (users.length !== 2) return [];
+  const out = new Map();
+  for (let sourceIdx = 0; sourceIdx < users.length; sourceIdx++) {
+    const targetIdx = sourceIdx === 0 ? 1 : 0;
+    const source = users[sourceIdx];
+    const target = users[targetIdx];
+    const threshold = Math.max(4, userModels[sourceIdx].avg + 0.35);
+    source.ratings.forEach(row => {
+      const key = makeKey(row);
+      if (row.rating == null || row.rating < threshold) return;
+      if (!key || target.watchedSet.has(key)) return;
+      const existing = out.get(key);
+      if (existing && existing.sourceRating >= row.rating) return;
+      out.set(key, {
+        key,
+        title: row.title,
+        year: row.year,
+        uri: row.uri,
+        sourceType: 'friend-favorite',
+        sourceOwner: sourceIdx,
+        targetOwner: targetIdx,
+        sourceRating: row.rating,
+        supportCount: 1,
+        watchOwners: target.watchlistMap.has(key) ? [targetIdx] : [],
+      });
+    });
+  }
+  return [...out.values()].sort((a, b) => {
+    if (b.sourceRating !== a.sourceRating) return b.sourceRating - a.sourceRating;
+    return (a.title || '').localeCompare(b.title || '');
+  });
+}
+
 async function enrichCandidates(candidates, cache, progressBase, progressSpan, titlePrefix) {
   const enriched = [];
   for (let i = 0; i < candidates.length; i++) {
@@ -692,6 +736,21 @@ function scoreCandidate(candidate, users, userModels, mode) {
     harmonic,
     agreementFactor,
     confidence,
+    finalScore,
+  };
+}
+
+function scoreFavoriteCandidate(candidate, users, userModels) {
+  const targetMeta = predictForUser(candidate, users[candidate.targetOwner], userModels[candidate.targetOwner]);
+  const watchBonus = candidate.watchOwners.includes(candidate.targetOwner) ? 0.12 : 0;
+  const sourceBonus = candidate.sourceRating * 0.22;
+  const finalScore = targetMeta.score * 0.9 + sourceBonus + targetMeta.confidence * 0.1 + watchBonus;
+  return {
+    ...candidate,
+    predictionMeta: [targetMeta],
+    preds: [candidate.sourceRating, targetMeta.score],
+    matched: [targetMeta.matched],
+    confidence: targetMeta.confidence,
     finalScore,
   };
 }
@@ -773,33 +832,36 @@ async function run() {
   showProgress('Building candidate pool…', 'finding watchlist and similar-movie candidates', 12);
   const cache = loadTmdbCache();
   const similarFallback = await buildSimilarFallbackCandidates(users, userModels, cache, MODE);
+  const favoriteCandidates = MODE === 2 ? buildFavoriteHandoffCandidates(users, userModels).slice(0, 60) : [];
 
   const existingKeys = new Set(shortlistUnion.map(c => c.key));
   const fallbackShortlist = similarFallback.filter(c => {
     const byName = (c.title || '').toLowerCase() + '|' + (c.year || '');
     if (existingKeys.has(c.key) || existingKeys.has(byName) || sharedKeys.has(byName)) return false;
-    for (const user of users) if (user.watchedSet.has(byName)) return false;
-    return true;
+    return isUnseenByAll(byName, users.map(u => u.watchedSet));
   });
 
   const primaryCandidates = MODE === 1 ? [...shortlistUnion, ...fallbackShortlist].slice(0, 90) : sharedCandidates;
   const discoveryCandidates = MODE === 1 ? [] : [...shortlistUnion, ...fallbackShortlist].slice(0, 80);
+  const favoritesPool = MODE === 2 ? favoriteCandidates : [];
 
-  const totalToEnrich = primaryCandidates.length + discoveryCandidates.length;
+  const totalToEnrich = primaryCandidates.length + discoveryCandidates.length + favoritesPool.length;
   showProgress('Looking up movie metadata…', totalToEnrich + ' candidates', 18);
 
   const enrichedPrimary = await enrichCandidates(primaryCandidates, cache, 18, totalToEnrich ? 44 * (primaryCandidates.length / totalToEnrich) : 0, MODE === 1 ? 'Scoring personal picks…' : 'Scoring shared picks…');
   const enrichedDiscovery = await enrichCandidates(discoveryCandidates, cache, 62, totalToEnrich ? 28 * (discoveryCandidates.length / totalToEnrich) : 0, 'Scoring more group picks…');
+  const enrichedFavorites = await enrichCandidates(favoritesPool, cache, 90, totalToEnrich ? 8 * (favoritesPool.length / totalToEnrich) : 0, 'Scoring favorite handoffs…');
   saveTmdbCache(cache);
 
   showProgress('Scoring picks…', 'combining affinity and agreement', 92);
 
   const scoredPrimary = dedupeScored(enrichedPrimary.map(c => scoreCandidate(c, users, userModels, MODE)).sort((a, b) => b.finalScore - a.finalScore), MODE === 1 ? 24 : 48);
   const scoredDiscovery = dedupeScored(enrichedDiscovery.map(c => scoreCandidate(c, users, userModels, MODE)).sort((a, b) => b.finalScore - a.finalScore), 24);
+  const scoredFavorites = dedupeScored(enrichedFavorites.map(c => scoreFavoriteCandidate(c, users, userModels)).sort((a, b) => b.finalScore - a.finalScore), 18);
 
   showProgress('Done', '', 100);
   await new Promise(r => setTimeout(r, 180));
-  renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery });
+  renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery, scoredFavorites });
 }
 
 function fmtScore(x) { return x == null ? '—' : x.toFixed(2); }
@@ -826,11 +888,11 @@ function primarySectionNote(mode) {
 }
 
 function groupSectionNote(mode) {
-  if (mode === 2) return "These are movies that aren't in both watchlists already. We prefer unseen titles from your combined watchlists first, then add a few TMDB-similar fallbacks if the watchlists are thin.";
-  return "These are movies that aren't already on all three watchlists. The ranking still favors movies all three of you are predicted to like, with a small bonus when someone already saved it.";
+  if (mode === 2) return "These are movies that aren't in both watchlists already, and neither person is marked as having watched them. We prefer unseen titles from your combined watchlists first, then add a few TMDB-similar fallbacks if the watchlists are thin.";
+  return "These are movies that aren't already on all three watchlists, and nobody in the group is marked as having watched them. The ranking still favors movies all three of you are predicted to like, with a small bonus when someone already saved it.";
 }
 
-function renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery }) {
+function renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery, scoredFavorites }) {
   document.getElementById('progress-phase').style.display = 'none';
   document.getElementById('report-phase').style.display = 'block';
   document.getElementById('report-meta').textContent = users.map(u => u.name).join(' & ') + ' • ' + new Date().toLocaleDateString();
@@ -858,8 +920,10 @@ function renderReport({ users, userModels, sharedCandidates, unionCandidates, sc
   renderPicksWithFilters(scoredPrimary, users.map(u => u.name));
 
   const groupSection = document.getElementById('group-discovery-section');
+  const favoritesSection = document.getElementById('favorites-section');
   if (MODE === 1) {
     groupSection.style.display = 'none';
+    favoritesSection.style.display = 'none';
   } else {
     groupSection.style.display = '';
     document.getElementById('group-discovery-title').textContent = "Movies Not In Common But You'd All Probably Like";
@@ -868,6 +932,17 @@ function renderReport({ users, userModels, sharedCandidates, unionCandidates, sc
       empty: 'Not enough unseen group candidates surfaced from your watchlists or similar films.',
       max: 18,
     });
+    if (MODE === 2) {
+      favoritesSection.style.display = '';
+      document.getElementById('favorites-title').textContent = 'Favorites One Of You Loved';
+      document.getElementById('favorites-note').textContent = "These are movies one of you already rated highly, the other hasn't seen yet, and the algorithm thinks the unseen person will probably like.";
+      drawPickList('favorites-area', scoredFavorites, users.map(u => u.name), {
+        empty: 'No strong favorite handoff picks surfaced from your ratings yet.',
+        max: 12,
+      });
+    } else {
+      favoritesSection.style.display = 'none';
+    }
   }
 
   const listArea = document.getElementById('shared-list-area');
@@ -1013,9 +1088,14 @@ function drawPickCards(targetEl, picks, userNames) {
   targetEl.innerHTML = '<div class="pick-grid">' + picks.map((m, i) => {
     const reason = buildReason(m, userNames);
     const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
-    const scorePills = userNames.map((n, j) =>
-      `<span class="score-pill"><span class="star">★</span> ${escapeHtml(n)} ${fmtScore(m.preds[j])}</span>`
-    ).join('');
+    const scorePills = m.sourceType === 'friend-favorite'
+      ? [
+          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.sourceOwner])} rated ${fmtScore(m.sourceRating)}</span>`,
+          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.targetOwner])} predicted ${fmtScore(m.predictionMeta[0].score)}</span>`,
+        ].join('')
+      : userNames.map((n, j) =>
+          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(n)} ${fmtScore(m.preds[j])}</span>`
+        ).join('');
     return `
       <div class="pick-card">
         <div class="poster-wrap">
@@ -1034,6 +1114,24 @@ function drawPickCards(targetEl, picks, userNames) {
 }
 
 function buildReason(m, userNames) {
+  if (m.sourceType === 'friend-favorite') {
+    const targetMeta = m.predictionMeta[0];
+    const sourceName = userNames[m.sourceOwner];
+    const targetName = userNames[m.targetOwner];
+    const evidence = [
+      `${sourceName} rated this ${fmtScore(m.sourceRating)}★ and ${targetName} has not logged it yet.`,
+    ];
+    if (m.watchOwners.includes(m.targetOwner)) {
+      evidence.push(`${targetName} already saved it to their watchlist.`);
+    }
+    if (targetMeta.matched.length) {
+      const top = targetMeta.matched[0];
+      evidence.push(`${targetName} rated "${top.title}" ${fmtScore(top.rating)}★, which is a strong similar-movie signal.`);
+    } else {
+      evidence.push(`${targetName}'s score falls back more heavily to their overall average because direct overlap was sparse.`);
+    }
+    return evidence.join(' ');
+  }
   const evidence = [];
   m.predictionMeta.forEach((meta, i) => {
     if (!meta.matched.length) {

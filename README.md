@@ -7,7 +7,7 @@ Live: https://letterpicks.ndblake.com
 ## Modes
 
 - `1 person`: recommends movies you'd probably like based on your highest-rated films, your watchlist, and a small set of unseen TMDB-similar candidates.
-- `2 people`: keeps the existing shared-watchlist ranking, and also suggests movies not already in both watchlists that you're both predicted to like.
+- `2 people`: keeps the existing shared-watchlist ranking, suggests movies neither of you has seen yet, and adds a favorites-handoff list for movies one person loved that the other has not seen.
 - `3 people`: same as 2-person mode, but optimized for three-way consensus.
 
 ## How it works
@@ -30,10 +30,19 @@ For movies already in every uploaded watchlist:
 
 For 2-person and 3-person mode, Letterpicks also builds a second pool:
 
-- First choice: unseen movies from the union of all uploaded watchlists, especially titles saved by one person but not the others.
+- First choice: movies from the union of all uploaded watchlists that nobody in the group has already watched or rated.
 - Fallback: a small number of unseen TMDB-similar titles derived from each user's highest-rated films.
 - Movies already watched or rated by any uploaded user are filtered out when that data is available.
 - Ranking uses the same per-user prediction logic, plus a small bonus for union-watchlist movies so the output stays grounded in what someone already saved.
+
+### Favorites handoff picks
+
+In 2-person mode, Letterpicks also builds a third list:
+
+- It finds movies one person rated highly.
+- It filters out anything the other person has already watched or rated.
+- It predicts how much the unseen person would like that movie using the same similar-movie model.
+- It ranks higher when the person who has seen it rated it strongly and the unseen person's predicted score is strong.
 
 ### Single-user picks
 

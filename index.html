@@ -107,6 +107,10 @@
     .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1rem; text-align: center; }
     .stat-card .val { font-size: 2rem; font-weight: 700; color: var(--green); line-height: 1.1; }
     .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.3rem; }
+    .score-toggle-wrap { display: flex; justify-content: flex-end; margin: -1rem 0 1.5rem; }
+    .score-toggle { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem; gap: 0.2rem; }
+    .score-toggle button { background: transparent; border: none; color: var(--muted); font-size: 0.78rem; padding: 0.45rem 0.9rem; border-radius: 999px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .score-toggle button.active { background: var(--green); color: #0a0f0a; font-weight: 700; }
 
     .section { margin-bottom: 2.5rem; }
     .section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
@@ -128,6 +132,8 @@
     .pick-card .lb-link { font-size: 0.78rem; margin-top: 0.4rem; }
 
     .shared-list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.4rem 1rem; }
+    .library-block + .library-block { margin-top: 1rem; }
+    .library-block-title { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.55rem; }
     .shared-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
     .shared-row:last-child { border-bottom: none; }
     .shared-row .rank { color: var(--muted); font-size: 0.75rem; min-width: 1.8rem; }
@@ -200,6 +206,12 @@
       <button class="back-btn" onclick="reset()">← New Picks</button>
     </div>
     <div class="stat-grid" id="stat-grid"></div>
+    <div class="score-toggle-wrap">
+      <div class="score-toggle" id="score-toggle" aria-label="Score display mode">
+        <button type="button" data-score-mode="predicted" class="active">Predicted Score</button>
+        <button type="button" data-score-mode="tmdb">TMDB Average</button>
+      </div>
+    </div>
 
     <div class="section">
       <h2 id="primary-section-title">Top Picks</h2>
@@ -249,6 +261,9 @@ document.querySelectorAll('.palette-swatch').forEach(s => {
 
 const SLOT_LABELS = ['User A', 'User B', 'User C'];
 const SLOT_PLACEHOLDERS = ['Name (e.g. Noah)', 'Name (e.g. Sam)', 'Name (e.g. Alex)'];
+const SCORE_MODE_KEY = 'lp_score_mode_v1';
+let SCORE_DISPLAY_MODE = localStorage.getItem(SCORE_MODE_KEY) || 'predicted';
+let LAST_REPORT_DATA = null;
 const MODE_COPY = {
   1: {
     tag: "Drop in one Letterboxd export ZIP and we'll look at what you've loved before, what you still haven't watched, and what you'd probably like next.",
@@ -452,6 +467,7 @@ async function tmdbDetails(id, cache) {
   cache[ck] = {
     runtime: data.runtime || null,
     certification: cert,
+    voteAverage: typeof data.vote_average === 'number' ? data.vote_average : null,
     genres: (data.genres || []).map(g => g.name),
     similar: ((data.similar && data.similar.results) || []).map(m => ({
       id: m.id,
@@ -700,7 +716,7 @@ async function enrichCandidates(candidates, cache, progressBase, progressSpan, t
       enriched.push({ ...candidate, tmdbId: null, poster: null, similar: [], runtime: null, certification: null, genres: [] });
       continue;
     }
-    let details = { runtime: null, certification: null, genres: [], similar: [] };
+    let details = { runtime: null, certification: null, voteAverage: null, genres: [], similar: [] };
     try {
       details = await throttled(() => tmdbDetails(hit.id, cache));
     } catch (e) {
@@ -712,6 +728,7 @@ async function enrichCandidates(candidates, cache, progressBase, progressSpan, t
       poster: candidate.poster || hit.poster || null,
       runtime: details.runtime,
       certification: details.certification,
+      voteAverage: details.voteAverage,
       genres: details.genres,
       similar: details.similar,
     });
@@ -865,6 +882,7 @@ async function run() {
 }
 
 function fmtScore(x) { return x == null ? '—' : x.toFixed(2); }
+function fmtTmdbScore(x) { return x == null ? '—' : x.toFixed(1) + '/10'; }
 function fmtRuntime(min) {
   if (!min) return '';
   const h = Math.floor(min / 60), m = min % 60;
@@ -892,10 +910,41 @@ function groupSectionNote(mode) {
   return "These are movies that aren't already on all three watchlists, and nobody in the group is marked as having watched them. The ranking still favors movies all three of you are predicted to like, with a small bonus when someone already saved it.";
 }
 
+function renderSharedRows(items) {
+  return '<div class="shared-list">' + items.map((m, i) =>
+    `<div class="shared-row">
+      <span class="rank">${i + 1}</span>
+      <span class="title">${escapeHtml(m.title)}</span>
+      <span class="year">${m.year || ''}</span>
+      <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
+    </div>`
+  ).join('') + '</div>';
+}
+
+function syncScoreToggle() {
+  const toggle = document.getElementById('score-toggle');
+  if (!toggle) return;
+  toggle.querySelectorAll('button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scoreMode === SCORE_DISPLAY_MODE);
+  });
+}
+
+document.getElementById('score-toggle').querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    SCORE_DISPLAY_MODE = btn.dataset.scoreMode;
+    localStorage.setItem(SCORE_MODE_KEY, SCORE_DISPLAY_MODE);
+    syncScoreToggle();
+    if (LAST_REPORT_DATA) renderReport(LAST_REPORT_DATA);
+  });
+});
+syncScoreToggle();
+
 function renderReport({ users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery, scoredFavorites }) {
+  LAST_REPORT_DATA = { users, userModels, sharedCandidates, unionCandidates, scoredPrimary, scoredDiscovery, scoredFavorites };
   document.getElementById('progress-phase').style.display = 'none';
   document.getElementById('report-phase').style.display = 'block';
   document.getElementById('report-meta').textContent = users.map(u => u.name).join(' & ') + ' • ' + new Date().toLocaleDateString();
+  syncScoreToggle();
 
   const stats = [];
   if (MODE === 1) {
@@ -950,19 +999,28 @@ function renderReport({ users, userModels, sharedCandidates, unionCandidates, sc
   const listNote = document.getElementById('library-section-note');
   if (MODE === 1) {
     listTitle.textContent = 'Your Watchlist';
-    listNote.textContent = 'Everything currently in the uploaded watchlist ZIP.';
+    listNote.textContent = 'Suggested picks from your uploaded watchlist, plus the full watchlist inventory below.';
     if (!users[0].watchlist.length) {
       listArea.innerHTML = '<div class="empty">No watchlist entries were found in this export.</div>';
     } else {
+      const suggestedWatchlist = scoredPrimary.filter(m => m.sourceType === 'watchlist-union').slice(0, 12);
       const sorted = [...users[0].watchlist].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      listArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
-        `<div class="shared-row">
-          <span class="rank">${i + 1}</span>
-          <span class="title">${escapeHtml(m.title)}</span>
-          <span class="year">${m.year || ''}</span>
-          <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
-        </div>`
-      ).join('') + '</div>';
+      const blocks = [];
+      if (suggestedWatchlist.length) {
+        blocks.push(
+          '<div class="library-block">' +
+            '<div class="library-block-title">Suggested From Your Watchlist</div>' +
+            renderSharedRows(suggestedWatchlist) +
+          '</div>'
+        );
+      }
+      blocks.push(
+        '<div class="library-block">' +
+          '<div class="library-block-title">Full Watchlist</div>' +
+          renderSharedRows(sorted) +
+        '</div>'
+      );
+      listArea.innerHTML = blocks.join('');
     }
   } else {
     listTitle.textContent = 'Full Shared Watchlist';
@@ -971,14 +1029,7 @@ function renderReport({ users, userModels, sharedCandidates, unionCandidates, sc
       listArea.innerHTML = '<div class="empty">No shared watchlist movies.</div>';
     } else {
       const sorted = [...sharedCandidates].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      listArea.innerHTML = '<div class="shared-list">' + sorted.map((m, i) =>
-        `<div class="shared-row">
-          <span class="rank">${i + 1}</span>
-          <span class="title">${escapeHtml(m.title)}</span>
-          <span class="year">${m.year || ''}</span>
-          <a href="${lbUrl(m.uri, m.title, m.year)}" target="_blank" rel="noopener">Letterboxd ↗</a>
-        </div>`
-      ).join('') + '</div>';
+      listArea.innerHTML = renderSharedRows(sorted);
     }
   }
 }
@@ -1088,14 +1139,19 @@ function drawPickCards(targetEl, picks, userNames) {
   targetEl.innerHTML = '<div class="pick-grid">' + picks.map((m, i) => {
     const reason = buildReason(m, userNames);
     const poster = m.poster ? `<img src="${POSTER_BASE}${m.poster}" alt="" loading="lazy" />` : '';
-    const scorePills = m.sourceType === 'friend-favorite'
-      ? [
-          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.sourceOwner])} rated ${fmtScore(m.sourceRating)}</span>`,
-          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.targetOwner])} predicted ${fmtScore(m.predictionMeta[0].score)}</span>`,
-        ].join('')
-      : userNames.map((n, j) =>
-          `<span class="score-pill"><span class="star">★</span> ${escapeHtml(n)} ${fmtScore(m.preds[j])}</span>`
-        ).join('');
+    let scorePills = '';
+    if (SCORE_DISPLAY_MODE === 'tmdb') {
+      scorePills = `<span class="score-pill"><span class="star">★</span> TMDB ${fmtTmdbScore(m.voteAverage)}</span>`;
+    } else {
+      scorePills = m.sourceType === 'friend-favorite'
+        ? [
+            `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.sourceOwner])} rated ${fmtScore(m.sourceRating)}</span>`,
+            `<span class="score-pill"><span class="star">★</span> ${escapeHtml(userNames[m.targetOwner])} predicted ${fmtScore(m.predictionMeta[0].score)}</span>`,
+          ].join('')
+        : userNames.map((n, j) =>
+            `<span class="score-pill"><span class="star">★</span> ${escapeHtml(n)} ${fmtScore(m.preds[j])}</span>`
+          ).join('');
+    }
     return `
       <div class="pick-card">
         <div class="poster-wrap">
